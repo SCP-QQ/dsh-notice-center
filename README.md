@@ -53,7 +53,7 @@ dsh plugin --profile web add dsh-notice-center
 ```
 
 本机当前用的是本地 link：profile 的 `dependencies` 加
-`"dsh-notice-center": "link:<本地工作区>/dsh-notice-center"`，
+`"dsh-notice-center": "link:<项目目录>/dsh-notice-center"`，
 `dsh.profile.bundles` 加 `"dsh-notice-center"`。
 
 **重启要求分两半**：改浏览器半 `lib/client.cjs` 免重启（HMR 会 stat-poll 并通知浏览器重载该插件 bundle，刷新页面可确保干净重载）；**改宿主半 `lib/index.mjs` 必须重启 Harness**（宿主半热重载依赖 `cordis-plugin-hmr`，需 loader 带 `--expose-internals`，实测未生效）。首次安装与任何改名也必须重启。

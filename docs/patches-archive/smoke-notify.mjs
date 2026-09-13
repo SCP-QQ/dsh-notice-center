@@ -13,7 +13,7 @@
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
-const target = process.argv[2] ?? "<本地工作区>/dsh-done-whale-pr/lib/client.cjs";
+const target = process.argv[2] ?? "<上游克隆目录>/lib/client.cjs";
 
 const notifications = [];
 const registrations = [];
