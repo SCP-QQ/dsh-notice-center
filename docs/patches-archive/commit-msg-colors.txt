@@ -1,0 +1,7 @@
+通知中心设置页重构：颜色三件套合并为一组（总开关 + 展开）
+
+1. 颜色配置合并为「鲸鱼状态灯」一组：标题 + 描述「标签页图标根据任务状态显示不同颜色」+ 右侧官方 Switch 总开关（宿主 schema 新增 colorsEnabled，默认 true；关闭时不接管 favicon，保持官方原版图标）。
+2. 该组下方新增一行可点击的展开开关（右侧 chevron 随展开态旋转），展开后显示「完成 / 待处理 / 默认色」三行，每行右侧为色板，点击即可改色（去掉原来的 hex 输入框与「恢复默认颜色」按钮）。
+3. 文案同步：greenLabel / amberLabel 改为「完成 / 待处理」（英文 Done / Pending），新增 colorsTitle / colorsHint / colorsExpand。
+4. 插入脚本新增 replace-range 模式，用于整体替换设置页主体（原三色 map 渲染 → 新分组结构）。
+5. 验证：node 语法校验 + mock 冒烟测试（单一设置分区、uiSession 可选通道、完成与待处理两条通知路径）全部通过。

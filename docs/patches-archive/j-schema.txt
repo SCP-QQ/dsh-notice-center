@@ -1,0 +1,9 @@
+black: z.string().pattern(HEX),
+	/** 颜色状态灯总开关（关闭时保持官方原版图标）。 */
+	colorsEnabled: z.boolean().default(true),
+	/** 系统通知总开关（默认关闭；开启时若未授权由设置页发起授权请求）。 */
+	notifyEnabled: z.boolean().default(false),
+	/** 通知提示音：完成与待处理为两种不同的预置音。 */
+	notifySound: z.boolean().default(true),
+	/** 提示音音量（0–1）。 */
+	notifyVolume: z.number().min(0).max(1).default(0.6)

@@ -1,0 +1,5 @@
+通知中心：移除「仅当前页面不在前台时开启通知」配置项，策略固定
+
+1. 该策略改为固定行为：通知只在页面不在前台时发送（flushNotifications 直接判断 document.visibilityState，不再读配置）。
+2. 移除相关配置面：宿主 schema 删除 notifyOnlyWhenHidden 字段；设置页删除该开关行；客户端 NOTIFY_DEFAULTS 与 notifyConfig 同步清理；中英文案各删除一条。
+3. 验证：node 语法校验 + mock 冒烟测试（完成与待处理两条通知路径、提示音与音量断言、单一设置分区）全部通过；产物中检索 notifyOnlyWhenHidden 为 0 命中。

@@ -1,0 +1,11 @@
+			ctx.slots.inject("settings.section", () => {
+				const t = ctx.locale.bind(SETTINGS_NAMESPACE);
+				return ctx.slots.register({
+					name: "settings.section",
+					id: "icon-gallery",
+					order: 900,
+					label: () => "图标预览",
+					locale: SETTINGS_NAMESPACE,
+					inject: () => ({})
+				}, IconGallerySection);
+			});
