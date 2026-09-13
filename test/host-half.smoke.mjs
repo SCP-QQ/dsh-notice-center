@@ -29,11 +29,15 @@ check(`SETTINGS_NAMESPACE = ${EXPECTED_NS}`, mod.SETTINGS_NAMESPACE === EXPECTED
 
 /* 执行 apply：这一步才能真正抓住 apply 内部的未定义标识符。 */
 let registered;
+const logs = [];
+const logger = { info: (...args) => logs.push(args) };
 try {
 	plugin.apply({
+		logger,
 		inject: (deps, callback) => {
 			check("apply 注入 settings", Array.isArray(deps) && deps.includes("settings"), String(deps));
 			callback({
+				logger,
 				settings: {
 					register: (ns, schema) => {
 						registered = { ns, schema };
@@ -51,6 +55,7 @@ if (registered !== undefined) {
 	check(`注册命名空间 = ${EXPECTED_NS}`, registered.ns === EXPECTED_NS, String(registered.ns));
 	check("注册了 schema", registered.schema !== undefined);
 }
+check("注册成功留了一行日志（重启后可在控制台自证）", logs.length === 1, logs[0]?.join(" "));
 
 /* 存量配置能否通过 schema（改名后命名空间变了，这条能发现「配置对不上」）。 */
 const home = process.env.DSH_HOME ?? join(process.env.USERPROFILE ?? "", ".dsh");
