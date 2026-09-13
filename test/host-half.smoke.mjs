@@ -74,8 +74,13 @@ try {
 		}
 		const resolved = mod.NoticeSettingsSchema(raw);
 		check("存量配置通过 schema 校验", true, JSON.stringify(resolved));
-		check("notifyEnabled 解析为 true", resolved.notifyEnabled === true, String(resolved.notifyEnabled));
-		check("notifyVolume 解析为 0.65", resolved.notifyVolume === 0.65, String(resolved.notifyVolume));
+		/* 断言结构性不变量，而不是具体用户取值（音量会被用户在设置页改）。
+		   真正要守住的是：文件里写过的每一项都被 schema 原样保留，不被静默丢弃/改写。 */
+		const drift = Object.entries(raw).filter(([key, value]) => resolved[key] !== value).map(([key, value]) => `${key}: 文件=${String(value)} 解析=${String(resolved[key])}`);
+		check("文件中的每一项都被 schema 原样保留", drift.length === 0, drift.join("; "));
+		check("notifyEnabled 为布尔值", typeof resolved.notifyEnabled === "boolean", String(resolved.notifyEnabled));
+		check("notifyVolume 落在 [0,1]", typeof resolved.notifyVolume === "number" && resolved.notifyVolume >= 0 && resolved.notifyVolume <= 1, String(resolved.notifyVolume));
+		check("green/amber 为合法 hex（schema 默认值生效）", /^#[0-9a-fA-F]{6}$/.test(resolved.green) && /^#[0-9a-fA-F]{6}$/.test(resolved.amber), `${resolved.green} / ${resolved.amber}`);
 	}
 } catch (error) {
 	check("读取 settings.yaml 并校验存量配置", false, String(error));
