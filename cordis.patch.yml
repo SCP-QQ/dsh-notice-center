@@ -4,7 +4,6 @@
 # 运行宿主半（最小 cordis 插件）；client-modules 同时扫到本包的 dsh.client
 # 元数据，把浏览器半挂进 /plugins/dsh-notice-center/client.js。
 #
-# 派生自 wally8-8/dsh-done-whale v0.2.2（MIT），现已独立维护。
 - insert:
     - id: notice-center
       name: 'dsh-notice-center'

@@ -1,4 +1,0 @@
-if (notifyTimer !== void 0) clearTimeout(notifyTimer);
-				notifyQueue.clear();
-				navIconObserver.disconnect();
-				unsubscribeList();

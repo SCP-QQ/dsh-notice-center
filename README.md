@@ -2,9 +2,7 @@
 
 DeepSeek Harness 的**通知中心**：把标签页鲸鱼图标变成状态灯，并在你不在看的时候主动提醒你 —— 会话跑完了，或者有事情等你拍板。
 
-> 本项目派生自上游 [wally8-8/dsh-done-whale](https://github.com/wally8-8/dsh-done-whale) v0.2.2（MIT），在其之上完成了 DSH 0.1.2-rc.1+ 适配与功能扩展（系统通知 / 通知中心 / 提示音），现已**独立维护**：
-> 包名 `dsh-notice-center`、插件实例 id `notice-center`、设置命名空间 `notice-center`。
-> 上游版权与许可全文见 `LICENSE`（保留原版权行）；上游纯净基线见 `upstream/v0.2.2/`；适配记录见 `适配说明.md`；历史补丁流水线（已归档、禁止再执行）见 `docs/patches-archive/`。
+包名 `dsh-notice-center`、插件实例 id `notice-center`、设置命名空间 `notice-center`。
 
 ## 功能
 
@@ -80,11 +78,9 @@ package.json          包元数据（dsh-notice-center）
 cordis.patch.yml      bundle patch 层（insert id: notice-center）
 lib/index.mjs         宿主半：向 settings 注册 notice-center 命名空间 schema
 lib/client.cjs        浏览器半：favicon 状态机 + 系统通知 + 设置页
-upstream/v0.2.2/      上游纯净基线（仅供 diff / 三方合并，不参与运行）
-docs/patches-archive/ 历史补丁流水线（已归档，禁止再执行）
-适配说明.md            0.1.2-rc.1 适配记录与验证清单
+test/host-half.smoke.mjs  宿主半冒烟测试（npm test）
 ```
 
 ## License
 
-MIT。原版权 `Copyright (c) 2025 dsh-done-whale contributors`，派生部分见 `LICENSE`。
+MIT，完整许可文本见 [`LICENSE`](./LICENSE)。

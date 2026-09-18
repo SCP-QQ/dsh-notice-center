@@ -1,1 +1,0 @@
-				if ((scope.getSnapshot().value ?? {}).colorsEnabled === false) return null;

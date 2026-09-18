@@ -1,7 +1,7 @@
 {
   "name": "dsh-notice-center",
   "version": "1.0.0",
-  "description": "DeepSeek Harness 通知中心：标签页鲸鱼状态灯（绿=跑完 / 琥珀=待处理）+ 浏览器系统通知（完成/待处理提示、提示音与音量可配）。由 wally8-8/dsh-done-whale v0.2.2（MIT）派生并独立维护。",
+  "description": "DeepSeek Harness 通知中心：标签页鲸鱼状态灯（绿=跑完 / 琥珀=待处理）+ 浏览器系统通知（完成/待处理提示、提示音与音量可配）。",
   "type": "module",
   "scripts": {
     "test": "node test/host-half.smoke.mjs"
@@ -22,8 +22,7 @@
     "lib/client.cjs",
     "cordis.patch.yml",
     "LICENSE",
-    "README.md",
-    "适配说明.md"
+    "README.md"
   ],
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.2"

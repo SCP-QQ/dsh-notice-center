@@ -1,4 +1,0 @@
-if (row.id === state.current && document.visibilityState === "hidden") {
-							finishedWhileHidden.add(row.id);
-							queueNotification("done", row.id, row.displayTitle ?? row.title ?? row.id);
-						}
