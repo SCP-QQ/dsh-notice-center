@@ -83,7 +83,8 @@ try {
 		check("green/amber 为合法 hex（schema 默认值生效）", /^#[0-9a-fA-F]{6}$/.test(resolved.green) && /^#[0-9a-fA-F]{6}$/.test(resolved.amber), `${resolved.green} / ${resolved.amber}`);
 	}
 } catch (error) {
-	check("读取 settings.yaml 并校验存量配置", false, String(error));
+	if (error.code === "ENOENT") console.log("[SKIP] 本机没有 " + settingsPath + "（CI 等干净环境），跳过存量配置校验");
+	else check("读取 settings.yaml 并校验存量配置", false, String(error));
 }
 
 console.log(failed === 0 ? "\n全部通过" : `\n有 ${failed} 项失败`);

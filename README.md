@@ -80,7 +80,9 @@ package.json          包元数据（dsh-notice-center）
 cordis.patch.yml      bundle patch 层（insert id: notice-center）
 lib/index.mjs         宿主半：向 settings 注册 notice-center 命名空间 schema
 lib/client.cjs        浏览器半：favicon 状态机 + 系统通知 + 设置页
-test/host-half.smoke.mjs  宿主半冒烟测试（npm test）
+test/host-half.smoke.mjs   宿主半冒烟测试
+test/client-half.smoke.mjs 浏览器半冒烟测试（npm test 跑两个）
+.github/workflows/test.yml  CI：push / PR 时跑 pnpm test
 ```
 
 ## License

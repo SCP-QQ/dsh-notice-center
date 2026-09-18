@@ -1,10 +1,12 @@
 {
   "name": "dsh-notice-center",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "DeepSeek Harness 通知中心：标签页鲸鱼状态灯（绿=跑完 / 琥珀=待处理）+ 浏览器系统通知（完成/待处理提示、提示音与音量可配）。",
   "type": "module",
   "scripts": {
-    "test": "node test/host-half.smoke.mjs"
+    "test": "node test/host-half.smoke.mjs && node test/client-half.smoke.mjs",
+    "test:host": "node test/host-half.smoke.mjs",
+    "test:client": "node test/client-half.smoke.mjs"
   },
   "main": "lib/index.mjs",
   "exports": {
