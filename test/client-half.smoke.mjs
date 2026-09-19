@@ -13,6 +13,7 @@
  *   8. requireInteraction 跟随「自动隐藏」开关
  *   9. 「前台提醒」开关：默认前台不提醒，开启后前台也发
  *  10. 完成通知附本轮总用时：有起点才附、聚合不附
+ *  11. 待处理细化：审批带工具名（超长截断）、提问分选择/多选/填写/批量；字段缺失逐级降级
  *
  * 用法：node test/client-half.smoke.mjs
  * 退出码 0 = 全部通过；1 = 有失败项。
@@ -196,9 +197,10 @@ const runToDone = (id, title) => {
   sessionState = { ...sessionState, byId: { ...sessionState.byId, [id]: row(id, title, true, false) } };
   tick();
 };
-const arisePending = (id, kind, title) => {
+const arisePending = (id, kind, title, extra) => {
   sessionState = { ...sessionState, byId: { ...sessionState.byId, [id]: row(id, title, false, false) } };
-  pendingMap = new Map([[id, { key: id, kind, sessionId: id }]]);
+  /* extra 用来构造 domain 字段（toolName / questions），缺省时等价于「字段缺失」。 */
+  pendingMap = new Map([[id, { key: id, kind, sessionId: id, ...(extra ?? {}) }]]);
   tick();
 };
 
@@ -422,5 +424,47 @@ await settle();
 check("同批两条聚合为一条", notifications.length === 1, "发了 " + notifications.length + " 条");
 check("聚合标题补 +N", notifications[0]?.title === "agg-d-1 +1", String(notifications[0]?.title));
 check("聚合时不附加用时", notifications[0]?.options?.body === "会话已完成", String(notifications[0]?.options?.body));
+
+/* ==================== 11. 待处理细化（审批工具名 / 提问形态） ==================== */
+/* 第 5 节已覆盖「字段缺失」的降级：approval 无 toolName → 待审批，question 无 questions → 向你提问。 */
+
+/* 11a 审批带工具名（官方 escalation 文案同样展示 toolName） */
+reset();
+arisePending("pd-tool", "approval", "改权限", { toolName: "Bash" });
+await settle();
+check("审批带工具名", notifications[0]?.options?.body === "待审批 · Bash", String(notifications[0]?.options?.body));
+
+/* 11b 工具名超长截断，别撑破通知正文 */
+reset();
+arisePending("pd-tool-long", "approval", "长工具名", { toolName: "mcp__some-very-long-server-name__do-something-useful" });
+await settle();
+check("超长工具名截断到 32 字 + 省略号", notifications[0]?.options?.body === "待审批 · mcp__some-very-long-server-name_…", String(notifications[0]?.options?.body));
+
+/* 11c 有选项＝选择、多选、无选项＝填写 */
+reset();
+arisePending("pd-choose", "question", "选择题", { questions: [{ id: "q1", question: "选哪个", options: [{ label: "A" }, { label: "B" }] }] });
+await settle();
+check("提问·有选项＝请你选择", notifications[0]?.options?.body === "请你选择", String(notifications[0]?.options?.body));
+
+reset();
+arisePending("pd-multi", "question", "多选题", { questions: [{ id: "q1", question: "选哪些", options: [{ label: "A" }], multiSelect: true }] });
+await settle();
+check("提问·多选＝请你多选", notifications[0]?.options?.body === "请你多选", String(notifications[0]?.options?.body));
+
+reset();
+arisePending("pd-fill", "question", "填空题", { questions: [{ id: "q1", question: "说说你的想法" }] });
+await settle();
+check("提问·无选项＝请你填写", notifications[0]?.options?.body === "请你填写", String(notifications[0]?.options?.body));
+
+/* 11d 批量提问报数量；计划待审核仍走官方 kind，不受细化影响 */
+reset();
+arisePending("pd-batch", "question", "批量提问", { questions: [{ id: "q1", question: "a" }, { id: "q2", question: "b" }] });
+await settle();
+check("提问·多问题＝向你提问（2 个）", notifications[0]?.options?.body === "向你提问（2 个）", String(notifications[0]?.options?.body));
+
+reset();
+arisePending("pd-plan2", "plan-review", "计划", { questions: [{ id: "q1", question: "批准吗", detail: "# 计划", intent: { kind: "plan-review", approve: "Approve" } }] });
+await settle();
+check("计划待审核不受细化影响", notifications[0]?.options?.body === "计划待审核", String(notifications[0]?.options?.body));
 console.log(failed === 0 ? "\n全部通过" : `\n有 ${failed} 项失败`);
 process.exit(failed === 0 ? 0 : 1);
