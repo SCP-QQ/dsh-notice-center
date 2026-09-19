@@ -14,6 +14,7 @@
  *   9. 「前台提醒」开关：默认前台不提醒，开启后前台也发
  *  10. 完成通知附本轮总用时：有起点才附、聚合不附
  *  11. 待处理细化：审批带工具名（超长截断）、提问分选择/多选/填写/批量；字段缺失逐级降级
+ *  12. 状态灯优先级：待处理（琥珀）压过完成（绿），并存时不被掩盖
  *
  * 用法：node test/client-half.smoke.mjs
  * 退出码 0 = 全部通过；1 = 有失败项。
@@ -466,5 +467,40 @@ reset();
 arisePending("pd-plan2", "plan-review", "计划", { questions: [{ id: "q1", question: "批准吗", detail: "# 计划", intent: { kind: "plan-review", approve: "Approve" } }] });
 await settle();
 check("计划待审核不受细化影响", notifications[0]?.options?.body === "计划待审核", String(notifications[0]?.options?.body));
+
+/* ==================== 12. 状态灯优先级：待处理压过完成 ==================== */
+/* 官方 sessionStatuses 的顺序是 pending > running > completed；favicon 是跨会话聚合，
+   应用同一原则：任意会话「卡住等你」压过任意会话「跑完了」。 */
+const GREEN_URI = "%2322C55E";
+const AMBER_URI = "%23F59E0B";
+
+/* 12a 只有完成 → 绿 */
+reset();
+sessionState = { byId: {}, current: void 0 };
+pendingMap = new Map();
+tick();
+sessionState = { byId: { "pl-done": row("pl-done", "跑完了", true, false) }, current: void 0 };
+tick();
+check("只有完成 → 绿", linkEl.href.includes(GREEN_URI), linkEl.href.slice(0, 48));
+
+/* 12b 只有待处理 → 琥珀 */
+sessionState = { byId: { "pl-wait": row("pl-wait", "等我答复", false, false) }, current: void 0 };
+pendingMap = new Map([["pl-wait", { key: "pl-wait", kind: "question", sessionId: "pl-wait", questions: [] }]]);
+tick();
+check("只有待处理 → 琥珀", linkEl.href.includes(AMBER_URI), linkEl.href.slice(0, 48));
+
+/* 12c 两者并存 → 琥珀优先（修复前这里返回绿，审批被完成提醒掩盖） */
+sessionState = { byId: {
+  "pl-done2": row("pl-done2", "跑完了", true, false),
+  "pl-wait2": row("pl-wait2", "等我审批", false, false)
+}, current: void 0 };
+pendingMap = new Map([["pl-wait2", { key: "pl-wait2", kind: "approval", sessionId: "pl-wait2", toolName: "Bash" }]]);
+tick();
+check("完成与待处理并存 → 琥珀优先（不被掩盖）", linkEl.href.includes(AMBER_URI), linkEl.href.slice(0, 48));
+
+/* 12d 待处理处理完 → 回落到绿 */
+pendingMap = new Map();
+tick();
+check("待处理清掉后回落到绿", linkEl.href.includes(GREEN_URI), linkEl.href.slice(0, 48));
 console.log(failed === 0 ? "\n全部通过" : `\n有 ${failed} 项失败`);
 process.exit(failed === 0 ? 0 : 1);

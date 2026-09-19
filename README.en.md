@@ -29,7 +29,7 @@ In the tab (green = a session finished):
 
 ![Tab status light](docs/images/tab-status-light.png)
 
-The colours come from **the same official signal** as the sidebar's green and amber dots, so they never drift apart. Only main sessions count; subagents do not affect it. When both green and amber apply, green wins.
+The colours come from **the same official signal** as the sidebar's green and amber dots, so they never drift apart. Only main sessions count; subagents do not affect it. When both apply, **amber wins** — a pending interaction is the primary status, so a session waiting on you is never masked by another session that just finished.
 
 All three colours are configurable, including the default colour — leave it unset to keep the stock icon.
 
