@@ -24,18 +24,37 @@ DeepSeek Harness 的**通知中心**：把标签页鲸鱼图标变成状态灯�
 - 必居其一才弹：**仅在页面不在前台时提醒**（固定策略）——「前台」= 标签页可见**且**窗口有焦点；切到别的标签页、最小化、或浏览器被别的应用压在后面时都会提醒，只有你正看着 DSH 时才不打扰
 - **聚合与去重**：300ms 窗口合并，同一会话同一类型只弹一次；多条合并为「标题 +N」
 - **点击通知** = 聚焦窗口并打开对应会话
-- **提示音**：完成与待处理两种预置音，音量可调；开启提示音时会静音系统提示音，改用插件自带音
+- **提示音（音效可选）**：完成 / 待处理各自可下拉选音效，共 **45 个 opencode 内置音效**（Alert / Bip-bop / Staplebops / Nope / Yup）+ 2 个内置合成音；**悬浮即试听**，点选即生效；音量可调。开启提示音时会静音系统提示音，改用插件自带音
 - **常驻可选**：可关闭「自动隐藏」，通知就一直留在屏幕上，直到你点击或手动关闭（默认开启自动隐藏，由系统自行收起）
 - 通知图标跟随您配置的状态灯颜色（绿 / 琥珀）
 
-### 3. 设置页
+### 3. 音效库
+
+完成与待处理各有一个下拉，共 45 个音效（随包分发，来自 opencode 内置音效库）：
+
+| 音效包 | 条目 |
+|---|---|
+| 内置 | 上行双音（完成默认）、下行双音（待处理默认） |
+| Alert | Alert 01–10 |
+| Bip-bop | Bip-bop 01–10 |
+| Staplebops | Staplebops 01–07 |
+| Nope | Nope 01–12 |
+| Yup | Yup 01–06 |
+
+- **悬浮即试听**：鼠标划过下拉里的条目就播该音效（120ms 防抖，扫过整列不会连成一片）
+- **点选即生效**：选中后该类型通知就播这个音，当前项打 \`✓\`
+- **样式照官方下拉**：无边框 + ghost 填充 + 8px 圆角 + 右侧 12px chevron，hover 换填充色（与设置面板里的官方下拉一致）
+- 音效由宿主半在 `/notice-center-sounds/<id>.mp3` 提供；路由不可用时**自动回退内置合成音**，不会变哑
+- 老配置无需迁移：没配过音效时仍用原来的上行/下行合成音
+
+### 4. 设置页
 
 设置 → **通知中心**（导航项），分两组：
 
 | 分组 | 项 |
 |---|---|
 | 颜色 | 完成色、待处理色、默认色（未配置=官方原版）、颜色状态灯总开关 |
-| 通知 | 系统通知总开关（默认**关闭**）、自动隐藏开关（默认**开启**）、提示音开关、提示音音量、浏览器授权状态与授权按钮 |
+| 通知 | 系统通知总开关（默认**关闭**）、自动隐藏开关（默认**开启**）、提示音开关、提示音音量、**完成/待处理音效下拉（悬浮试听）**、浏览器授权状态与授权按钮 |
 
 系统通知为 opt-in：首次开启需在设置页点击授权按钮（浏览器要求用户手势），拒绝后需到站点设置里重置。
 
@@ -79,7 +98,8 @@ dsh plugin --profile web remove dsh-notice-center
 package.json          包元数据（dsh-notice-center）
 cordis.patch.yml      bundle patch 层（insert id: notice-center）
 lib/index.mjs         宿主半：向 settings 注册 notice-center 命名空间 schema
-lib/client.cjs        浏览器半：favicon 状态机 + 系统通知 + 设置页
+lib/client.cjs        浏览器半：favicon 状态机 + 系统通知 + 音效库 + 设置页
+assets/audio/*.mp3    45 个音效（取自 opencode，MIT；来源见 assets/audio/README.md）
 test/host-half.smoke.mjs   宿主半冒烟测试
 test/client-half.smoke.mjs 浏览器半冒烟测试（npm test 跑两个）
 .github/workflows/test.yml  CI：push / PR 时跑 pnpm test
@@ -88,3 +108,7 @@ test/client-half.smoke.mjs 浏览器半冒烟测试（npm test 跑两个）
 ## License
 
 MIT，完整许可文本见 [`LICENSE`](./LICENSE)。
+
+音效素材（`assets/audio/*.mp3`，45 个）取自 [anomalyco/opencode](https://github.com/anomalyco/opencode)
+的 `packages/ui/src/assets/audio/`，上游以 MIT 许可发布，这里保留同样的许可与署名；
+若上游调整授权，请同步替换或移除本目录（详见 [`assets/audio/README.md`](./assets/audio/README.md)）。

@@ -15,7 +15,7 @@
  * 用法：node test/client-half.smoke.mjs
  * 退出码 0 = 全部通过；1 = 有失败项。
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 
 let failed = 0;
 const check = (name, ok, detail = "") => {
@@ -59,6 +59,24 @@ const fakeDocument = {
 Object.defineProperty(fakeDocument, "visibilityState", { get: () => visibility });
 
 globalThis.Notification = FakeNotification;
+
+/* 音频桩：记录被播放的音效 src 与音量（校验「按配置播放所选音效」）。 */
+const playedAudio = [];
+class FakeAudio {
+  constructor(src) {
+    this.src = src;
+    this.volume = 1;
+    playedAudio.push(this);
+  }
+  play() {
+    this.playing = true;
+    return Promise.resolve();
+  }
+  pause() {
+    this.playing = false;
+  }
+}
+globalThis.Audio = FakeAudio;
 globalThis.document = fakeDocument;
 globalThis.window = globalThis;
 globalThis.addEventListener = () => {};
@@ -84,7 +102,7 @@ check("bundle id = dsh-notice-center", record?.id === "dsh-notice-center", recor
 const primitivesStub = new Proxy({}, { get: () => () => null });
 const requireMock = (name) => {
   if (name === "@deepseek-ai/dsh-client-ui-primitives") return primitivesStub;
-  if (name === "react") return { useSyncExternalStore: () => ({}), useState: () => [void 0, () => {}] };
+  if (name === "react") return { useSyncExternalStore: () => ({}), useState: () => [void 0, () => {}], useRef: () => ({ current: void 0 }), useEffect: () => {} };
   if (name === "react/jsx-runtime") return { jsx: () => null, jsxs: () => null };
   return {};
 };
@@ -248,6 +266,40 @@ runToDone("c-autohide", "自动隐藏测试");
 await settle();
 check("开启自动隐藏 → requireInteraction=false", notifications[0]?.options?.requireInteraction === false, String(notifications[0]?.options?.requireInteraction));
 check("提示音开关开启时静音系统提示音", notifications[0]?.options?.silent === true, String(notifications[0]?.options?.silent));
+
+/* ==================== 7. 音效选择：按配置播放所选音效 ==================== */
+reset();
+playedAudio.length = 0;
+settingsValue.notifyEnabled = true;
+settingsValue.notifyDoneSound = "yup-03";
+settingsValue.notifyVolume = 0.5;
+runToDone("c-sound", "音效测试");
+await settle();
+check("完成通知播放所选音效", playedAudio.length === 1 && playedAudio[0].src.endsWith("/notice-center-sounds/yup-03.mp3"), JSON.stringify(playedAudio.map((audio) => audio.src)));
+check("音效音量跟随配置", playedAudio[0]?.volume === 0.5, String(playedAudio[0]?.volume));
+
+reset();
+playedAudio.length = 0;
+settingsValue.notifyPendingSound = "nope-07";
+arisePending("p-sound", "approval", "待处理音效");
+await settle();
+check("待处理通知播放所选音效", playedAudio.length === 1 && playedAudio[0].src.endsWith("/notice-center-sounds/nope-07.mp3"), JSON.stringify(playedAudio.map((audio) => audio.src)));
+
+reset();
+playedAudio.length = 0;
+delete settingsValue.notifyDoneSound;
+runToDone("c-builtin", "默认音效");
+await settle();
+check("未配置时用内置合成音（不请求 mp3）", playedAudio.length === 0, JSON.stringify(playedAudio.map((audio) => audio.src)));
+
+/* ==================== 8. 音效库与随包文件一一对应 ==================== */
+const SOUND_PACKS = { alert: 10, "bip-bop": 10, staplebops: 7, nope: 12, yup: 6 };
+const expectedSounds = [];
+for (const [prefix, count] of Object.entries(SOUND_PACKS)) {
+  for (let index = 1; index <= count; index += 1) expectedSounds.push(`${prefix}-${String(index).padStart(2, "0")}`);
+}
+const shippedSounds = readdirSync(new URL("../assets/audio/", import.meta.url)).filter((name) => name.endsWith(".mp3")).map((name) => name.replace(/\.mp3$/, ""));
+check("音效库与随包文件一一对应", JSON.stringify([...shippedSounds].sort()) === JSON.stringify([...expectedSounds].sort()), `文件 ${shippedSounds.length} 个 / 库 ${expectedSounds.length} 个`);
 
 console.log(failed === 0 ? "\n全部通过" : `\n有 ${failed} 项失败`);
 process.exit(failed === 0 ? 0 : 1);
