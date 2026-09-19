@@ -1,0 +1,89 @@
+name: publish
+
+# 发布工作流 —— 只在「打 tag」时触发；日常 commit / push 到 main 不会发包。
+#
+#   正式发版：    git tag v1.3.0      && git push origin v1.3.0       → 发到 latest
+#   预发布试用：  git tag v1.3.0-rc.1 && git push origin v1.3.0-rc.1  → 发到 next（不污染 latest）
+#   只验证流程：  Actions 页面手动 Run workflow                          → 装依赖+测试+pack 干跑，不发布
+#
+# 认证走 npm Trusted Publishing (OIDC)：不需要任何 npm 令牌。
+# 一次性配置：npm 包页 → Settings → Trusted publishing → GitHub Actions
+#   Organization or user : SCP-QQ
+#   Repository           : dsh-notice-center
+#   Workflow filename    : publish.yml   ← 重命名本文件必须同步改这里，否则发布 403
+#   Environment          : npm           ← 想要「人工批准才发布」就填它，再去仓库里加 Required reviewers
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/dsh-notice-center
+    permissions:
+      contents: read
+      id-token: write # OIDC：Trusted Publishing + 自动 provenance 的唯一必需项
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      # Node 24 自带 npm 11；Trusted Publishing 要求 npm CLI ≥ 11.5.1（Node 22 只带 npm 10）
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: 校验 tag 与 package.json 版本一致
+        if: github.event_name == 'push'
+        run: |
+          expected="v$(node -p "require('./package.json').version")"
+          if [ "$expected" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME 与 package.json 的 $expected 不一致（发布前先改版本号）"
+            exit 1
+          fi
+          echo "版本一致：$expected"
+
+      - name: 校验 tag 指向的提交已在 main 上
+        if: github.event_name == 'push'
+        run: |
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main; then
+            echo "::error::$GITHUB_REF_NAME 指向的提交不在 main 上，拒绝发布（未合并的分支不许发包）"
+            exit 1
+          fi
+
+      - name: 测试（宿主半 + 浏览器半冒烟测试）
+        run: pnpm test
+
+      - name: 手动触发＝只校验不发布
+        if: github.event_name == 'workflow_dispatch'
+        run: npm pack --dry-run
+
+      - name: 发布到 npm（OIDC 无令牌，provenance 自动附带）
+        if: github.event_name == 'push'
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          case "$version" in
+            *-*) tag=next ;;   # 1.3.0-rc.1 这类预发布走 next，不动 latest
+            *)   tag=latest ;;
+          esac
+          echo "发布 $version → dist-tag: $tag"
+          npm publish --tag "$tag"

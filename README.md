@@ -145,6 +145,34 @@ npm run test:client # 只跑浏览器半
 
 CI 在 push / PR 时跑同一套（`.github/workflows/test.yml`）。
 
+## 发布
+
+发布由 **tag 触发**的 [`.github/workflows/publish.yml`](.github/workflows/publish.yml) 负责 —— 日常 commit / push **不会发包**：
+
+| 意图 | 命令 | 结果 |
+|---|---|---|
+| 只提交（功能还没验证完） | `git commit` + `git push` | 只跑 `test.yml`，npm 上毫无动静 |
+| 预发布（给人试用） | 版本改 `1.3.0-rc.1` → commit → `git tag v1.3.0-rc.1 && git push origin v1.3.0-rc.1` | 发到 **`next`** 通道（`npm i dsh-notice-center@next`），`latest` 不变 |
+| 正式发版 | 版本改 `1.3.0` → commit → `git tag v1.3.0 && git push origin v1.3.0` | 发到 **`latest`**，自动附带 provenance |
+| 只验证发布流程 | Actions → publish → Run workflow | 装依赖 + 跑测试 + `npm pack --dry-run`，**不发布** |
+
+工作流内建三道闸：**tag 与 `package.json` 版本必须一致**、**tag 指向的提交必须已在 `main` 上**、**测试必须通过**。任一不过就发不出去。
+
+### 一次性配置：npm Trusted Publishing (OIDC)
+
+发布不需要任何 npm 令牌（也就没有令牌过期 / 泄漏的问题）。在 npm 包页 → **Settings → Trusted publishing** → GitHub Actions 填四项：
+
+| 字段 | 值 |
+|---|---|
+| Organization or user | `SCP-QQ` |
+| Repository | `dsh-notice-center` |
+| Workflow filename | `publish.yml` ← 重命名该文件必须同步改这里，否则 403 |
+| Environment | `npm` |
+
+- 走 OIDC 发布时 npm **自动附带 provenance**（无需 `--provenance`），包页会显示来源证明
+- 想要「tag 推上去还要人工点一下才发」：仓库 Settings → Environments → `npm` → 加 **Required reviewers**；不加也能正常发布
+- 本机手动发布仍可用 granular token 兜底（见上文「安装」里的 `.npmrc` 用法）
+
 ## 目录结构
 
 ```
