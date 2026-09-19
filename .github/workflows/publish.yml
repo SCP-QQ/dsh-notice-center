@@ -81,6 +81,11 @@ jobs:
         if: github.event_name == 'push'
         run: |
           version="$(node -p "require('./package.json').version")"
+          # 幂等：该版本已在 registry 上就跳过（重复打 tag / 重跑工作流不会红）
+          if npm view "dsh-notice-center@$version" version >/dev/null 2>&1; then
+            echo "::notice::dsh-notice-center@$version 已存在于 npm，跳过发布"
+            exit 0
+          fi
           case "$version" in
             *-*) tag=next ;;   # 1.3.0-rc.1 这类预发布走 next，不动 latest
             *)   tag=latest ;;
