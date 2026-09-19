@@ -15,6 +15,7 @@
  *  10. 完成通知附本轮总用时：有起点才附、聚合不附
  *  11. 待处理细化：审批带工具名（超长截断）、提问分选择/多选/填写/批量；字段缺失逐级降级
  *  12. 状态灯优先级：待处理（琥珀）压过完成（绿），并存时不被掩盖
+ *  13. 设置页真的渲染一次：开关/滑杆/下拉/取色器各自写对字段，复位只清对应字段
  *
  * 用法：node test/client-half.smoke.mjs
  * 退出码 0 = 全部通过；1 = 有失败项。
@@ -36,6 +37,10 @@ let sessionState = { byId: {}, current: void 0 };
 let pendingMap = new Map();
 const settingsValue = {};
 const strings = {};
+/** en 字典：第 13 节断言 zh/en key 集合一致。 */
+const stringsEn = {};
+/** 第 13 节：apply 期间从 slots.register 截获的设置页组件。 */
+let registeredSection;
 const listListeners = [];
 const pendingListeners = [];
 const scopeListeners = [];
@@ -107,11 +112,35 @@ const record = loaded[0];
 check("bundle 自注册到 __ModuleLoader__", record !== void 0, `记录数 ${loaded.length}`);
 check("bundle id = dsh-notice-center", record?.id === "dsh-notice-center", record?.id);
 
-const primitivesStub = new Proxy({}, { get: () => () => null });
+/* ---------- 记录型桩 ----------
+ * 这些桩不只是"能跑通"，而是把渲染结果记录下来，好让第 13 节真的能检查设置页：
+ *   jsx/jsxs 记录节点而不返回 null；原语带 __primitive 标记便于在树里辨认；
+ *   useState 对布尔初值返回 true（两个折叠分组一开始就展开，11 行子项才会都渲染）。
+ * 为什么不用真 React：仓库里没有 react / react-dom，装一套只为跑测试会给这个零依赖
+ * 插件增加开发依赖，而且跑的不是宿主那份 React。 */
+const jsxNodes = [];
+const jsx = (type, props, key) => {
+  const node = { type, props: props ?? {}, key };
+  jsxNodes.push(node);
+  return node;
+};
+const primitivesStub = new Proxy({}, {
+  get: (_target, name) => {
+    const marker = (props) => ({ primitive: String(name), props: props ?? {} });
+    marker.__primitive = String(name);
+    return marker;
+  }
+});
 const requireMock = (name) => {
   if (name === "@deepseek-ai/dsh-client-ui-primitives") return primitivesStub;
-  if (name === "react") return { useSyncExternalStore: () => ({}), useState: () => [void 0, () => {}], useRef: () => ({ current: void 0 }), useEffect: () => {} };
-  if (name === "react/jsx-runtime") return { jsx: () => null, jsxs: () => null };
+  if (name === "react") return {
+    /* 必须返回真实快照：否则设置页读到的 value 是 {}，所有行都落默认值，断言就没有意义。 */
+    useSyncExternalStore: (_subscribe, getSnapshot) => getSnapshot(),
+    useState: (init) => [typeof init === "boolean" ? true : init, () => {}],
+    useRef: () => ({ current: void 0 }),
+    useEffect: () => {}
+  };
+  if (name === "react/jsx-runtime") return { jsx, jsxs: jsx };
   return {};
 };
 const client = record.factory(requireMock);
@@ -168,13 +197,18 @@ const ctx = {
     },
     register: (_ns, dicts) => {
       Object.assign(strings, dicts.zh);
+      Object.assign(stringsEn, dicts.en);
     }
   },
   slots: {
     inject: (_name, callback) => {
       callback();
     },
-    register: () => ({})
+    /* 截获注册进来的设置页组件 —— 第 13 节要亲手渲染它（原先直接丢掉）。 */
+    register: (_options, component) => {
+      registeredSection = component;
+      return {};
+    }
   }
 };
 
@@ -502,5 +536,80 @@ check("完成与待处理并存 → 琥珀优先（不被掩盖）", linkEl.href
 pendingMap = new Map();
 tick();
 check("待处理清掉后回落到绿", linkEl.href.includes(GREEN_URI), linkEl.href.slice(0, 48));
+
+/* ==================== 13. 设置页渲染（记录型桩） ==================== */
+/* 让设置页组件真的执行一次并检查它产出的界面结构 —— 在此之前它从未被渲染过，
+   所以「开关接错字段」这类 bug 完全抓不到。jsxNodes 在渲染期被 jsx/jsxs 填充。 */
+jsxNodes.length = 0;
+const t13 = ctx.locale.bind();
+let sectionTree = null;
+let renderError = null;
+try {
+  sectionTree = registeredSection({ scope, t: t13 });
+} catch (error) {
+  renderError = error;
+}
+check("截获到了设置页组件", typeof registeredSection === "function", typeof registeredSection);
+check("设置页组件能渲染（不抛异常）", renderError === null, renderError === null ? "" : String(renderError));
+check("组件返回了界面树", sectionTree !== null && typeof sectionTree === "object", String(sectionTree));
+
+/* 5 个开关：label 与它写入的字段必须一一对应。每次只让目标字段可能翻真，
+   这样「接错字段」会表现为别的字段被写、目标字段没动，断言直接抓住。 */
+const switches = jsxNodes.filter((node) => typeof node.type === "function" && node.type.__primitive === "Switch");
+const switchByLabel = (label) => switches.find((node) => node.props.label === label);
+const switchLabels = switches.map((node) => node.props.label);
+check("渲染出 5 个开关", switches.length === 5, switchLabels.join(" / "));
+check("开关标题与顺序正确", JSON.stringify(switchLabels) === JSON.stringify(["鲸鱼状态灯", "系统通知", "自动隐藏", "前台提醒", "提示音"]), switchLabels.join(" / "));
+const switchWrites = [
+  ["鲸鱼状态灯", "colorsEnabled"],
+  ["系统通知", "notifyEnabled"],
+  ["自动隐藏", "notifyAutoHide"],
+  ["前台提醒", "notifyForeground"],
+  ["提示音", "notifySound"]
+];
+for (const [label, field] of switchWrites) {
+  for (const [, f] of switchWrites) settingsValue[f] = false;
+  switchByLabel(label)?.props.onChange(true);
+  const flipped = switchWrites.filter(([, f]) => settingsValue[f] === true).map(([, f]) => f);
+  check("开关「" + label + "」只写 " + field, flipped.length === 1 && flipped[0] === field, "实际写入: " + (flipped.join(",") || "(无)"));
+}
+
+/* 两个音效下拉：done / pending 不能接反（SoundPicker 节点靠 groups prop 辨认）。 */
+const pickers = jsxNodes.filter((node) => node.props !== void 0 && "groups" in node.props && typeof node.props.onChange === "function");
+check("渲染出 2 个音效下拉", pickers.length === 2, pickers.map((node) => node.props.kind).join(" / "));
+for (const [kind, field] of [["done", "notifyDoneSound"], ["pending", "notifyPendingSound"]]) {
+  const other = kind === "done" ? "notifyPendingSound" : "notifyDoneSound";
+  delete settingsValue.notifyDoneSound;
+  delete settingsValue.notifyPendingSound;
+  pickers.find((node) => node.props.kind === kind)?.props.onChange("yup-01");
+  check("音效下拉 " + kind + " 写的是 " + field, settingsValue[field] === "yup-01" && settingsValue[other] === void 0, JSON.stringify({ done: settingsValue.notifyDoneSound, pending: settingsValue.notifyPendingSound }));
+}
+
+/* 音量滑杆 */
+const slider = jsxNodes.find((node) => node.type === "input" && node.props.type === "range");
+delete settingsValue.notifyVolume;
+slider?.props.onChange({ target: { value: "50" } });
+check("音量滑杆写 notifyVolume", settingsValue.notifyVolume === 0.5, String(settingsValue.notifyVolume));
+
+/* 三行颜色：取色器写入 + ↺ 只清对应字段 */
+const colorInputs = jsxNodes.filter((node) => node.type === "input" && node.props.type === "color");
+check("渲染出 3 个取色器", colorInputs.length === 3, colorInputs.map((node) => node.props["aria-label"]).join(" / "));
+const colorWrites = [["完成", "green"], ["待处理", "amber"], ["默认色", "black"]];
+for (const [label, field] of colorWrites) {
+  for (const [, f] of colorWrites) delete settingsValue[f];
+  colorInputs.find((node) => node.props["aria-label"] === label)?.props.onChange({ target: { value: "#123456" } });
+  const written = colorWrites.filter(([, f]) => settingsValue[f] === "#123456").map(([, f]) => f);
+  check("取色器「" + label + "」只写 " + field, written.length === 1 && written[0] === field, "实际写入: " + (written.join(",") || "(无)"));
+}
+settingsValue.green = "#111111";
+settingsValue.amber = "#222222";
+settingsValue.black = "#333333";
+const resetButtons = jsxNodes.filter((node) => node.type === "button" && node.props["aria-label"] === t13("restore") && typeof node.props.onClick === "function");
+check("渲染出 3 个复位按钮", resetButtons.length === 3, String(resetButtons.length));
+resetButtons[0]?.props.onClick();
+check("复位按钮只清对应颜色", settingsValue.green === void 0 && settingsValue.amber === "#222222" && settingsValue.black === "#333333", JSON.stringify({ green: settingsValue.green, amber: settingsValue.amber, black: settingsValue.black }));
+
+/* 文案：zh / en 字典 key 集合必须一致（防止只补中文） */
+check("zh / en 文案 key 集合一致", JSON.stringify(Object.keys(strings).sort()) === JSON.stringify(Object.keys(stringsEn).sort()), "zh=" + Object.keys(strings).length + " en=" + Object.keys(stringsEn).length);
 console.log(failed === 0 ? "\n全部通过" : `\n有 ${failed} 项失败`);
 process.exit(failed === 0 ? 0 : 1);
