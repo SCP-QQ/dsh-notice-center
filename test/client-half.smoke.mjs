@@ -15,7 +15,8 @@
  *  10. 完成通知附本轮总用时：有起点才附、聚合不附
  *  11. 待处理细化：审批带工具名（超长截断）、提问分选择/多选/填写/批量；字段缺失逐级降级
  *  12. 状态灯优先级：待处理（琥珀）压过完成（绿），并存时不被掩盖
- *  13. 设置页真的渲染一次：开关/滑杆/下拉/取色器各自写对字段，复位只清对应字段
+ *  13. 设置页真的渲染一次：开关/滑杆/下拉/取色器各自写对字段，复位只清对应字段，
+ *      分组行整行可点且开关/箭头各自拦住冒泡
  *
  * 用法：node test/client-half.smoke.mjs
  * 退出码 0 = 全部通过；1 = 有失败项。
@@ -119,6 +120,8 @@ check("bundle id = dsh-notice-center", record?.id === "dsh-notice-center", recor
  * 为什么不用真 React：仓库里没有 react / react-dom，装一套只为跑测试会给这个零依赖
  * 插件增加开发依赖，而且跑的不是宿主那份 React。 */
 const jsxNodes = [];
+/** 第 13 节：布尔 state 的 setter 按调用顺序记下来，用来断言「整行点击折叠的是哪一组」。 */
+const expandSetters = [];
 const jsx = (type, props, key) => {
   const node = { type, props: props ?? {}, key };
   jsxNodes.push(node);
@@ -136,7 +139,12 @@ const requireMock = (name) => {
   if (name === "react") return {
     /* 必须返回真实快照：否则设置页读到的 value 是 {}，所有行都落默认值，断言就没有意义。 */
     useSyncExternalStore: (_subscribe, getSnapshot) => getSnapshot(),
-    useState: (init) => [typeof init === "boolean" ? true : init, () => {}],
+    useState: (init) => {
+      const setter = (value) => setter.calls.push(value);
+      setter.calls = [];
+      if (typeof init === "boolean") expandSetters.push(setter);
+      return [typeof init === "boolean" ? true : init, setter];
+    },
     useRef: () => ({ current: void 0 }),
     useEffect: () => {}
   };
@@ -608,6 +616,35 @@ const resetButtons = jsxNodes.filter((node) => node.type === "button" && node.pr
 check("渲染出 3 个复位按钮", resetButtons.length === 3, String(resetButtons.length));
 resetButtons[0]?.props.onClick();
 check("复位按钮只清对应颜色", settingsValue.green === void 0 && settingsValue.amber === "#222222" && settingsValue.black === "#333333", JSON.stringify({ green: settingsValue.green, amber: settingsValue.amber, black: settingsValue.black }));
+
+/* 分组行整行可点：点标题行折叠/展开的是它自己那一组，不必去够最右边的箭头。 */
+check("两个折叠分组各有一个展开态 setter", expandSetters.length === 2, String(expandSetters.length));
+const groupRows = jsxNodes.filter((node) => node.type === "div" && typeof node.props.onClick === "function");
+check("两个分组行整行可点", groupRows.length === 2, String(groupRows.length));
+check("分组行显示为可点", groupRows.every((node) => node.props.style?.cursor === "pointer"), JSON.stringify(groupRows.map((node) => node.props.style?.cursor)));
+const clearSetterCalls = () => expandSetters.forEach((setter) => { setter.calls.length = 0; });
+/* setter 收到的是 updater 函数（调用点写的是 setColorsExpanded((current) => !current)），
+   所以断言把它作用在当前值 true 上，验的是「语义上确实折成 false」而不是原始实参。 */
+const appliedCalls = (setter) => setter.calls.map((value) => (typeof value === "function" ? value(true) : value));
+clearSetterCalls();
+groupRows[0]?.props.onClick();
+check("点「鲸鱼状态灯」行只折叠这一组", expandSetters[0]?.calls.length === 1 && appliedCalls(expandSetters[0])[0] === false && expandSetters[1]?.calls.length === 0, JSON.stringify(expandSetters.map(appliedCalls)));
+clearSetterCalls();
+groupRows[1]?.props.onClick();
+check("点「系统通知」行只折叠这一组", expandSetters[1]?.calls.length === 1 && appliedCalls(expandSetters[1])[0] === false && expandSetters[0]?.calls.length === 0, JSON.stringify(expandSetters.map(appliedCalls)));
+
+/* 反例保护：开关与箭头必须各自拦住冒泡 —— 否则点开关会连带折叠，点箭头会折叠两次（等于没反应）。 */
+const chevrons = jsxNodes.filter((node) => node.type === "button" && "aria-expanded" in node.props);
+const switchGuards = jsxNodes.filter((node) => node.type === "span" && typeof node.props.onClick === "function" && node.props.children?.type?.__primitive === "Switch");
+check("两个折叠箭头仍是可访问按钮", chevrons.length === 2, String(chevrons.length));
+check("两个开关外层各有冒泡拦截", switchGuards.length === 2, String(switchGuards.length));
+clearSetterCalls();
+const guardEvent = { stopped: 0, stopPropagation() { this.stopped += 1; } };
+switchGuards[0]?.props.onClick(guardEvent);
+check("点开关不触发折叠", guardEvent.stopped === 1 && expandSetters.every((setter) => setter.calls.length === 0), JSON.stringify({ stopped: guardEvent.stopped, calls: expandSetters.map((setter) => setter.calls) }));
+const chevronEvent = { stopped: 0, stopPropagation() { this.stopped += 1; } };
+chevrons[0]?.props.onClick(chevronEvent);
+check("点箭头只折叠一次（不叠加整行点击）", chevronEvent.stopped === 1 && expandSetters[0]?.calls.length === 1, JSON.stringify({ stopped: chevronEvent.stopped, calls: expandSetters.map((setter) => setter.calls) }));
 
 /* 文案：zh / en 字典 key 集合必须一致（防止只补中文） */
 check("zh / en 文案 key 集合一致", JSON.stringify(Object.keys(strings).sort()) === JSON.stringify(Object.keys(stringsEn).sort()), "zh=" + Object.keys(strings).length + " en=" + Object.keys(stringsEn).length);
