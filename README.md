@@ -87,7 +87,7 @@ DeepSeek Harness 的**通知中心**：把标签页鲸鱼图标变成状态灯�
 dsh plugin --profile web add dsh-notice-center
 ```
 
-包页：<https://www.npmjs.com/package/dsh-notice-center>（当前 1.2.0）
+包页：<https://www.npmjs.com/package/dsh-notice-center>（`latest` 为稳定版；预发布版在 `next` 通道）
 
 ### 2. 直接从 GitHub 装（无需先发布）
 
