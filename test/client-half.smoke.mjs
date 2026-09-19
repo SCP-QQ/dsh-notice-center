@@ -11,6 +11,8 @@
  *   6. 同一批多条聚合为一条通知（标题补「 +N」）
  *   7. 待处理通知正文＝交互类型；未知 kind 回退通用标题
  *   8. requireInteraction 跟随「自动隐藏」开关
+ *   9. 「前台提醒」开关：默认前台不提醒，开启后前台也发
+ *  10. 完成通知附本轮总用时：有起点才附、聚合不附
  *
  * 用法：node test/client-half.smoke.mjs
  * 退出码 0 = 全部通过；1 = 有失败项。
@@ -90,6 +92,10 @@ globalThis.requestAnimationFrame = (fn) => {
   return 0;
 };
 
+/* 受控时钟：用时断言需要确定的毫秒差（客户端仅新增代码用 Date.now）。 */
+const clock = { now: 0 };
+Date.now = () => clock.now;
+
 /* ==================== 加载 bundle ==================== */
 const loaded = [];
 globalThis.__ModuleLoader__ = { load: (record) => loaded.push(record) };
@@ -152,7 +158,12 @@ const ctx = {
     fn();
   },
   locale: {
-    bind: () => (key) => strings[key] ?? key,
+    /* 支持 {name} 插值：正文带用时后，断言要读到真实文案而不是原始模板。 */
+    bind: () => (key, params) => {
+      const template = strings[key] ?? key;
+      if (params === void 0) return template;
+      return template.replace(/\{(\w+)\}/g, (match, name) => (name in params ? String(params[name]) : match));
+    },
     register: (_ns, dicts) => {
       Object.assign(strings, dicts.zh);
     }
@@ -341,5 +352,75 @@ check("前台完成不点绿灯（台前完成不记）", linkEl.href.endsWith("
 
 /* 收尾：关掉开关，不影响收尾检查。 */
 delete settingsValue.notifyForeground;
+
+/* ==================== 10. 本轮用时（通知正文） ==================== */
+/* 清场并切到后台：用时只在能算出起点时出现。Date.now 已换成受控时钟。 */
+reset();
+sessionState = { byId: {}, current: void 0 };
+tick();
+reset();
+visibility = "hidden";
+focused = false;
+
+/* 10a 空闲 → 运行 → 完成：133000ms = 2分13秒 */
+clock.now = 1000;
+sessionState = { current: "dur-1", byId: { "dur-1": row("dur-1", "计时会话", false, false) } };
+tick();
+clock.now = 3000;
+sessionState = { current: "dur-1", byId: { "dur-1": row("dur-1", "计时会话", false, true) } };
+tick();
+clock.now = 3000 + 133000;
+sessionState = { current: "dur-1", byId: { "dur-1": row("dur-1", "计时会话", true, false) } };
+tick();
+await settle();
+check("完成通知正文带本轮总用时（分+秒补零）", notifications[0]?.options?.body === "会话已完成 · 本轮总用时 2分13秒", String(notifications[0]?.options?.body));
+
+/* 10b 不足 1 分钟只显示秒 */
+reset();
+sessionState = { byId: {}, current: void 0 };
+tick();
+reset();
+clock.now = 500000;
+sessionState = { current: "dur-2", byId: { "dur-2": row("dur-2", "短任务", false, false) } };
+tick();
+clock.now += 5000;
+sessionState = { current: "dur-2", byId: { "dur-2": row("dur-2", "短任务", false, true) } };
+tick();
+clock.now += 9000;
+sessionState = { current: "dur-2", byId: { "dur-2": row("dur-2", "短任务", true, false) } };
+tick();
+await settle();
+check("不足一分钟只显示秒", notifications[0]?.options?.body === "会话已完成 · 本轮总用时 9秒", String(notifications[0]?.options?.body));
+
+/* 10c 首次观察时已在跑 → 没有起点 → 正文不带用时（而不是显示 0 秒） */
+reset();
+sessionState = { byId: {}, current: void 0 };
+tick();
+reset();
+clock.now = 900000;
+runToDone("dur-3", "无起点会话");
+await settle();
+check("没有起点时不显示用时", notifications[0]?.options?.body === "会话已完成", String(notifications[0]?.options?.body));
+
+/* 10d 同批聚合为一条时不附加用时（两条各自都有用时） */
+reset();
+sessionState = { byId: {}, current: void 0 };
+tick();
+reset();
+clock.now = 2000000;
+for (const id of ["agg-d-1", "agg-d-2"]) {
+  sessionState = { ...sessionState, byId: { ...sessionState.byId, [id]: row(id, id, false, false) } };
+  tick();
+  clock.now += 2000;
+  sessionState = { ...sessionState, byId: { ...sessionState.byId, [id]: row(id, id, false, true) } };
+  tick();
+  clock.now += 61000;
+  sessionState = { ...sessionState, byId: { ...sessionState.byId, [id]: row(id, id, true, false) } };
+  tick();
+}
+await settle();
+check("同批两条聚合为一条", notifications.length === 1, "发了 " + notifications.length + " 条");
+check("聚合标题补 +N", notifications[0]?.title === "agg-d-1 +1", String(notifications[0]?.title));
+check("聚合时不附加用时", notifications[0]?.options?.body === "会话已完成", String(notifications[0]?.options?.body));
 console.log(failed === 0 ? "\n全部通过" : `\n有 ${failed} 项失败`);
 process.exit(failed === 0 ? 0 : 1);

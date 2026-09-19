@@ -37,7 +37,7 @@ All three colours are configurable, including the default colour — leave it un
 
 - **Completion** — fires when a session finishes (the official `completed` goes false → true; the session you have open never flips it, so its run state going true → false counts instead)
 - **Pending** — fires when a new interaction starts waiting for you
-- **Text** — the title is the session name (with `+N` when several merge), the body is the kind of notification (finished → Session finished; pending → Approval needed / Question / Plan review, unknown kinds fall back to a generic line)
+- **Text** — the title is the session name (with `+N` when several merge), the body is the kind of notification (finished → Session finished; pending → Approval needed / Question / Plan review, unknown kinds fall back to a generic line); a **single** finished notification also carries how long the turn took (*Session finished · turn took 2m13s*), formatted like the official in-conversation "turn time" readout and dropped when several merge. The start is observed from `running`, so a turn already in flight when the page reloads has no start and shows no figure
 - **Quiet by default while you are looking** — *in the foreground* means the tab is visible **and** the window has focus; switching tabs, minimising, or leaving the browser behind another app all notify you. To be notified in the foreground too (still sitting in a session but away from the screen), turn on *Notify in the foreground* under *More notification options*
 - **Batching and de-duplication** — events within a 300ms window are merged; the same session and kind only fires once; several sessions merge into *title +N*
 - **Clicking the notification** focuses the window and opens that session
