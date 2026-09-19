@@ -21,7 +21,7 @@ Settings → **Notification center** (a sidebar entry):
 
 | Whale colour | Meaning | When it clears |
 |---|---|---|
-| 🟢 Green | A session **finished** while you were not watching it | Clears once you open that session; back to black when all are seen |
+| 🟢 Green | A session **finished** while you were not watching it | Clears once you open that session; back to the default state once you have opened them all |
 | 🟠 Amber | A session **awaits you**: question / approval / plan review | Clears once handled |
 | ⚫ Black | All clear (the stock icon) | Default state |
 
@@ -39,10 +39,10 @@ All three colours are configurable, including the default colour — leave it un
 - **Pending** — fires when a new interaction starts waiting for you
 - **Text** — the title is the session name (with `+N` when several merge), the body is the kind of notification (finished → Session finished; pending → Approval needed / Question / Plan review, unknown kinds fall back to a generic line)
 - **Only when you are not looking** (fixed policy) — *in the foreground* means the tab is visible **and** the window has focus; switching tabs, minimising, or leaving the browser behind another app all notify you, while actually watching DSH stays quiet
-- **Batching and de-duplication** — a 300ms window merges events; the same session and kind only fires once; several sessions merge into *title +N*
+- **Batching and de-duplication** — events within a 300ms window are merged; the same session and kind only fires once; several sessions merge into *title +N*
 - **Clicking the notification** focuses the window and opens that session
 - **Sound** — finished and pending each have their own picker (**hover to preview**) and a shared volume; turning sound on silences the system notification sound and uses the plugin's own
-- **Optional persistence** — turn *Auto hide* off and the notification stays on screen until you click or dismiss it (auto hide is on by default, so the OS collects it)
+- **Optional persistence** — turn *Auto hide* off and the notification stays on screen until you dismiss it (auto hide is on by default, so the OS collects it)
 - The notification icon follows your configured status-light colour
 
 | Finished (green) | Pending (amber) |
@@ -113,6 +113,16 @@ Add `"dsh-notice-center": "link:<project dir>/dsh-notice-center"` to the profile
 
 **Restart rules differ per half**: editing the browser half `lib/client.cjs` needs no restart (HMR stat-polls the bundle and tells the browser to reload it; refreshing the page forces a clean reload); **editing the host half `lib/index.mjs` requires a Harness restart** (host-half hot reload depends on `cordis-plugin-hmr`, which needs the loader to run with `--expose-internals` — measured, it does not take effect). A first install, or any rename, also requires a restart.
 
+### 5. A local `.npmrc` for manual publishing (optional)
+
+CI publishes over OIDC and needs **no token at all**. Only if you want to run `npm publish` from this machine, drop a `.npmrc` into the project root:
+
+```sh
+//registry.npmjs.org/:_authToken=<your granular token>
+```
+
+It is already listed in `.gitignore` — **never commit it** (especially not when it holds a real token).
+
 ## Requirements
 
 - A stock DeepSeek Harness (measured here on Harness 0.1.5-rc.1 + client packages 0.1.5-rc.2; supported from 0.1.2-rc.1)
@@ -177,7 +187,7 @@ Open the package management page → **Publishing Access** → *Trusted publishe
 
 - Publishing over OIDC makes npm attach **provenance automatically** (no `--provenance` flag), and the package page shows it
 - To require a human click even after a tag is pushed, add **Required reviewers** to the `npm` environment under the repository's Settings → Environments; publishing works without it too
-- Manual local publishing can still fall back to a granular token (see the `.npmrc` usage under Installation)
+- Manual local publishing can still fall back to a granular token (see the `.npmrc` usage in Installation, step 5)
 
 ## Layout
 
