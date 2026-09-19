@@ -160,14 +160,22 @@ CI 在 push / PR 时跑同一套（`.github/workflows/test.yml`）。
 
 ### 一次性配置：npm Trusted Publishing (OIDC)
 
-发布不需要任何 npm 令牌（也就没有令牌过期 / 泄漏的问题）。在 npm 包页 → **Settings → Trusted publishing** → GitHub Actions 填四项：
+发布不需要任何 npm 令牌（也就没有令牌过期 / 泄漏的问题）。
+
+打开包管理页 → **Publishing Access** → *Trusted publishers* → **Add a trusted publisher** → 选 **GitHub Actions**：
+
+<https://www.npmjs.com/package/dsh-notice-center/access>
 
 | 字段 | 值 |
 |---|---|
 | Organization or user | `SCP-QQ` |
 | Repository | `dsh-notice-center` |
-| Workflow filename | `publish.yml` ← 重命名该文件必须同步改这里，否则 403 |
-| Environment | `npm` |
+| Workflow filename | `publish.yml`（**只填文件名**，不带路径；重命名该文件必须同步改这里，否则 403） |
+| Environment name | `npm`（与工作流里的 `environment:` 一致） |
+| **Allowed actions → Allow npm publish** | ✅ **必须勾** |
+
+> ⚠️ 那个勾选框是 npm 新版行为：trusted publisher **默认只允许 `npm stage publish`（暂存）**，不勾 *Allow npm publish* 的话，本工作流里的 `npm publish` 会被拒。
+> 若你更想要「只能暂存、必须人工在浏览器批准才真发布」，就别勾，并把工作流末步改成 `npm stage publish`。
 
 - 走 OIDC 发布时 npm **自动附带 provenance**（无需 `--provenance`），包页会显示来源证明
 - 想要「tag 推上去还要人工点一下才发」：仓库 Settings → Environments → `npm` → 加 **Required reviewers**；不加也能正常发布
