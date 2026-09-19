@@ -78,6 +78,17 @@ if (registered !== undefined) {
 check("注册与路由挂载各留一行日志（重启后可在控制台自证）", logs.length === 2, JSON.stringify(logs.map((entry) => entry.join(" "))));
 check("日志里能确认命名空间已接上", logs.some((entry) => entry.join(" ").includes("settings namespace") && entry.join(" ").includes(EXPECTED_NS)), JSON.stringify(logs.map((entry) => entry.join(" "))));
 
+/* ==================== 页脚常量与清单一致（2026-09-20 新增） ==================== */
+/* 浏览器半是预构建产物，页脚里的版本号只能写字面量；这条守住它不跟 package.json 漂移。
+   仓库地址同理：package.json 的 repository.url 是唯一事实源。 */
+const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+const clientSource = readFileSync(new URL("../lib/client.cjs", import.meta.url), "utf8");
+const literalOf = (name) => new RegExp(`const ${name} = "([^"]+)"`).exec(clientSource)?.[1];
+const repoFromManifest = String(manifest.repository?.url ?? "").replace(/^git\+/, "").replace(/\.git$/, "");
+check("client 的 PLUGIN_VERSION 与 package.json 版本一致", literalOf("PLUGIN_VERSION") === manifest.version, `${literalOf("PLUGIN_VERSION")} vs ${manifest.version}`);
+check("client 的 PLUGIN_NAME 与 package.json 包名一致", literalOf("PLUGIN_NAME") === manifest.name, `${literalOf("PLUGIN_NAME")} vs ${manifest.name}`);
+check("client 的 PLUGIN_REPO 与 package.json 仓库一致", literalOf("PLUGIN_REPO") === repoFromManifest, `${literalOf("PLUGIN_REPO")} vs ${repoFromManifest}`);
+
 /* ==================== 音效路由（2026-09-19 新增） ==================== */
 check("注册了音效静态路由", registeredRoutes.length === 1 && registeredRoutes[0].path === mod.SOUND_ROUTE, JSON.stringify(registeredRoutes.map((route) => route.path)));
 check("音效路由为 prefix 形态", registeredRoutes[0]?.kind === "prefix", String(registeredRoutes[0]?.kind));

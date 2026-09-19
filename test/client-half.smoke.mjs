@@ -17,6 +17,8 @@
  *  12. 状态灯优先级：待处理（琥珀）压过完成（绿），并存时不被掩盖
  *  13. 设置页真的渲染一次：开关/滑杆/下拉/取色器各自写对字段，复位只清对应字段，
  *      分组行整行可点且开关/箭头各自拦住冒泡
+ *  14. 设置页页脚：插件名 + 版本号，整块是指向仓库的链接（href/target/rel 正确），
+ *      位置在「鲸鱼状态灯」分组行上方那一行（根节点的第一个子项），左对齐且不靠 marginTop:auto
  *
  * 用法：node test/client-half.smoke.mjs
  * 退出码 0 = 全部通过；1 = 有失败项。
@@ -645,6 +647,39 @@ check("点开关不触发折叠", guardEvent.stopped === 1 && expandSetters.ever
 const chevronEvent = { stopped: 0, stopPropagation() { this.stopped += 1; } };
 chevrons[0]?.props.onClick(chevronEvent);
 check("点箭头只折叠一次（不叠加整行点击）", chevronEvent.stopped === 1 && expandSetters[0]?.calls.length === 1, JSON.stringify({ stopped: chevronEvent.stopped, calls: expandSetters.map((setter) => setter.calls) }));
+
+/* ==================== 14. 设置页页脚（插件名 + 版本，点击开仓库） ==================== */
+/* 页脚有两个只在渲染期能抓的坑：链接写没写对（href/target/rel），以及「位置」——它占的
+   是「鲸鱼状态灯」上方那一行（官方 .options 自身没有标题），必须留在根节点子项的最前面，
+   而不是随便挪到末尾；同时它不再是"贴底"那一版（没有 marginTop:auto）。 */
+const manifestVersion = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
+const repoUrl = "https://github.com/SCP-QQ/dsh-notice-center";
+const sectionChildren = sectionTree?.props?.children;
+check("页脚是设置页第一项（「鲸鱼状态灯」上方那一行）", sectionChildren?.[0]?.props?.repo === repoUrl, JSON.stringify(sectionChildren?.[0]?.props?.name));
+check("页脚下方紧邻「鲸鱼状态灯」分组行", typeof sectionChildren?.[1]?.props?.onClick === "function" && sectionChildren?.[1]?.props?.style?.cursor === "pointer", JSON.stringify(Object.keys(sectionChildren?.[1]?.props ?? {})));
+check("页脚已不再是贴底版（根节点没有 minHeight 撑高）", sectionTree?.props?.style?.minHeight === void 0, JSON.stringify(sectionTree?.props?.style));
+const footerNode = jsxNodes.find((node) => typeof node.type === "function" && node.props !== void 0 && typeof node.props.repo === "string");
+check("设置页渲染出页脚组件", footerNode !== void 0);
+check("页脚版本号 = package.json 的 version", footerNode?.props.version === manifestVersion, `${footerNode?.props.version} vs ${manifestVersion}`);
+check("页脚链接指向仓库", footerNode?.props.repo === repoUrl, String(footerNode?.props.repo));
+/* 记录型桩只记节点、不执行组件函数，所以这里显式把页脚渲染一次再检查它产出的链接。
+   PluginFooter 内部的 useState 会把 setter 推进 expandSetters —— 上面所有关于
+   expandSetters 的断言都已跑完，这里多推一次不影响任何结论。 */
+jsxNodes.length = 0;
+let footerError = null;
+try {
+  footerNode?.type(footerNode.props);
+} catch (error) {
+  footerError = error;
+}
+check("页脚能渲染（不抛异常）", footerError === null, String(footerError));
+const footerWrap = jsxNodes.find((node) => node.type === "div" && node.props["data-plugin"] === "dsh-notice-center");
+check("页脚左对齐且不靠 marginTop:auto", footerWrap?.props.style?.justifyContent === "flex-start" && footerWrap?.props.style?.marginTop === void 0, JSON.stringify(footerWrap?.props.style));
+const repoLink = jsxNodes.find((node) => node.type === "a");
+check("页脚链接新标签打开且带 noreferrer", repoLink?.props.href === repoUrl && repoLink?.props.target === "_blank" && repoLink?.props.rel === "noreferrer", JSON.stringify({ href: repoLink?.props.href, target: repoLink?.props.target, rel: repoLink?.props.rel }));
+check("页脚显示插件名", jsxNodes.some((node) => node.type === "span" && node.props.children === t13("nav")), t13("nav"));
+check("页脚显示版本号 v" + manifestVersion, jsxNodes.some((node) => node.type === "span" && node.props.children === "v" + manifestVersion), jsxNodes.filter((node) => node.type === "span").map((node) => String(node.props.children)).join(" / "));
+check("页脚悬浮提示走 i18n（不是原始 key）", repoLink?.props.title === t13("footerRepoTitle") && t13("footerRepoTitle") !== "footerRepoTitle", String(repoLink?.props.title));
 
 /* 文案：zh / en 字典 key 集合必须一致（防止只补中文） */
 check("zh / en 文案 key 集合一致", JSON.stringify(Object.keys(strings).sort()) === JSON.stringify(Object.keys(stringsEn).sort()), "zh=" + Object.keys(strings).length + " en=" + Object.keys(stringsEn).length);

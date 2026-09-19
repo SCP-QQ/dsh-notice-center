@@ -15,6 +15,8 @@ Settings → **Notification center** (a sidebar entry):
 
 <img src="docs/images/settings.png" width="440" alt="Notification center settings">
 
+The **top of the settings page, left-aligned** (above the Whale status light group) carries the plugin name and version (e.g. "Notification center v1.3.0") — click it to open the repository in a new tab. The version is kept in sync with the shipped package.json — a smoke test fails if the two drift apart.
+
 ## Features
 
 ### 1. Whale status light (favicon state machine)
