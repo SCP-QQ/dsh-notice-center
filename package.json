@@ -26,7 +26,8 @@
     "cordis.patch.yml",
     "assets",
     "LICENSE",
-    "README.md"
+    "README.md",
+    "README.en.md"
   ],
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.2"

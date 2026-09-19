@@ -1,5 +1,7 @@
 # dsh-notice-center 🔔🐋
 
+**中文** | [English](./README.en.md)
+
 [![test](https://github.com/SCP-QQ/dsh-notice-center/actions/workflows/test.yml/badge.svg)](https://github.com/SCP-QQ/dsh-notice-center/actions/workflows/test.yml)
 [![npm](https://img.shields.io/npm/v/dsh-notice-center.svg)](https://www.npmjs.com/package/dsh-notice-center)
 
@@ -100,8 +102,8 @@ dsh plugin --profile web add git+ssh://git@github.com/SCP-QQ/dsh-notice-center.g
 ### 3. 从 tarball 装（离线 / 内网分发）
 
 ```sh
-npm pack                                        # 生成 dsh-notice-center-1.2.0.tgz
-dsh plugin --profile web add ./dsh-notice-center-1.2.0.tgz
+npm pack                                        # 生成 dsh-notice-center-<版本>.tgz
+dsh plugin --profile web add ./dsh-notice-center-<版本>.tgz
 ```
 
 ### 4. 本地 link（改代码时用）
