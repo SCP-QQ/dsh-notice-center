@@ -86,6 +86,8 @@ check("音效路由为 prefix 形态", registeredRoutes[0]?.kind === "prefix", S
 const soundDefaults = mod.NoticeSettingsSchema({});
 check("schema 完成音效默认 builtin-up", soundDefaults.notifyDoneSound === "builtin-up", String(soundDefaults.notifyDoneSound));
 check("schema 待处理音效默认 builtin-down", soundDefaults.notifyPendingSound === "builtin-down", String(soundDefaults.notifyPendingSound));
+/* 新字段：默认关闭＝保持原固定策略，老配置无需迁移。 */
+check("schema 前台也提醒默认关闭", soundDefaults.notifyForeground === false, String(soundDefaults.notifyForeground));
 
 if (registeredRoutes[0] !== undefined) {
 	const { createServer } = await import("node:http");

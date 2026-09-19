@@ -301,5 +301,45 @@ for (const [prefix, count] of Object.entries(SOUND_PACKS)) {
 const shippedSounds = readdirSync(new URL("../assets/audio/", import.meta.url)).filter((name) => name.endsWith(".mp3")).map((name) => name.replace(/\.mp3$/, ""));
 check("音效库与随包文件一一对应", JSON.stringify([...shippedSounds].sort()) === JSON.stringify([...expectedSounds].sort()), `文件 ${shippedSounds.length} 个 / 库 ${expectedSounds.length} 个`);
 
+
+/* ==================== 9. 前台也提醒（notifyForeground） ==================== */
+/* 清场：绿灯回官方图标，避免前面用例的完成态干扰断言。 */
+reset();
+sessionState = { byId: {}, current: void 0 };
+tick();
+
+/* 9a 未配置＝原策略：前台保持安静。 */
+reset();
+visibility = "visible";
+focused = true;
+runToDone("fg-off", "前台默认策略");
+await settle();
+check("未配置时前台不提醒（保持原策略）", notifications.length === 0, "发了 " + notifications.length + " 条");
+
+/* 9b 开启后：前台也发。 */
+reset();
+settingsValue.notifyForeground = true;
+runToDone("fg-on", "前台提醒");
+await settle();
+check("开启前台也提醒后，前台也发通知", notifications.length === 1, "发了 " + notifications.length + " 条");
+check("前台通知正文＝通知类型", notifications[0]?.options?.body === "会话已完成", String(notifications[0]?.options?.body));
+
+/* 9c 主要场景：人停在当前会话（标签页可见且有焦点），却已离开屏幕。
+   官方对选中会话不置 completed，通知只能由 running 边沿补齐；且不得因此点绿灯。 */
+reset();
+sessionState = { byId: {}, current: void 0 };
+tick();
+reset();
+sessionState = { current: "sel-1", byId: { "sel-1": row("sel-1", "从选中会话等结果", false, true) } };
+tick();
+sessionState = { current: "sel-1", byId: { "sel-1": row("sel-1", "从选中会话等结果", false, false) } };
+tick();
+await settle();
+check("选中会话在前台跑完也发通知（completed 始终不置位）", notifications.length === 1, "发了 " + notifications.length + " 条");
+check("选中会话前台通知标题＝会话名", notifications[0]?.title === "从选中会话等结果", String(notifications[0]?.title));
+check("前台完成不点绿灯（台前完成不记）", linkEl.href.endsWith("/favicon.svg"), linkEl.href);
+
+/* 收尾：关掉开关，不影响收尾检查。 */
+delete settingsValue.notifyForeground;
 console.log(failed === 0 ? "\n全部通过" : `\n有 ${failed} 项失败`);
 process.exit(failed === 0 ? 0 : 1);

@@ -35,13 +35,13 @@ All three colours are configurable, including the default colour — leave it un
 
 ### 2. System notifications
 
-- **Completion** — fires when a session's `completed` goes false → true
+- **Completion** — fires when a session finishes (the official `completed` goes false → true; the session you have open never flips it, so its run state going true → false counts instead)
 - **Pending** — fires when a new interaction starts waiting for you
 - **Text** — the title is the session name (with `+N` when several merge), the body is the kind of notification (finished → Session finished; pending → Approval needed / Question / Plan review, unknown kinds fall back to a generic line)
-- **Only when you are not looking** (fixed policy) — *in the foreground* means the tab is visible **and** the window has focus; switching tabs, minimising, or leaving the browser behind another app all notify you, while actually watching DSH stays quiet
+- **Quiet by default while you are looking** — *in the foreground* means the tab is visible **and** the window has focus; switching tabs, minimising, or leaving the browser behind another app all notify you. To be notified in the foreground too (still sitting in a session but away from the screen), turn on *Notify in the foreground* under *More notification options*
 - **Batching and de-duplication** — events within a 300ms window are merged; the same session and kind only fires once; several sessions merge into *title +N*
 - **Clicking the notification** focuses the window and opens that session
-- **Sound** — finished and pending each have their own picker (**hover to preview**) and a shared volume; turning sound on silences the system notification sound and uses the plugin's own
+- **Sound** — finished and pending each have their own picker (**hover to preview**) and a shared volume (adjusting the volume replays the current finished sound at the new level); turning sound on silences the system notification sound and uses the plugin's own
 - **Optional persistence** — turn *Auto hide* off and the notification stays on screen until you dismiss it (auto hide is on by default, so the OS collects it)
 - The notification icon follows your configured status-light colour
 
@@ -74,7 +74,7 @@ Finished and pending each have a picker with **47 entries**: 45 taken from openc
 
 1. **Open the settings page** — Settings → **Notification center**
 2. **Turn system notifications on** — flip the master switch; the browser asks for permission, choose Allow (if it was denied, the page says so and you have to re-allow it in the browser's site settings)
-3. **Volume and sounds** — expand *More notification options*: drag the volume slider; in the finished / pending pickers **hovering an entry previews it**, clicking selects it
+3. **Volume, sounds and foreground alerts** — expand *More notification options*: drag the volume slider (**releasing it replays the finished sound at the new level**); in the finished / pending pickers **hovering an entry previews it**, clicking selects it; turn on *Notify in the foreground* to be alerted while the page is in front
 4. **Colours (optional)** — expand *Tab whale light*: click the swatch or type a `#RRGGBB`, and ↺ at the end of the row restores the default
 5. **That is it** — from then on, sessions finishing or waiting for you notify you while you are away; clicking the notification jumps back to that session
 
