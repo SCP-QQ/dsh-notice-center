@@ -1,8 +1,17 @@
 # dsh-notice-center 🔔🐋
 
+[![test](https://github.com/SCP-QQ/dsh-notice-center/actions/workflows/test.yml/badge.svg)](https://github.com/SCP-QQ/dsh-notice-center/actions/workflows/test.yml)
+[![npm](https://img.shields.io/npm/v/dsh-notice-center.svg)](https://www.npmjs.com/package/dsh-notice-center)
+
 DeepSeek Harness 的**通知中心**：把标签页鲸鱼图标变成状态灯，并在你不在看的时候主动提醒你 —— 会话跑完了，或者有事情等你拍板。
 
 包名 `dsh-notice-center`、插件实例 id `notice-center`、设置命名空间 `notice-center`。
+
+## 界面
+
+设置 → **通知中心**（侧栏导航项）：
+
+<img src="docs/images/settings.png" width="440" alt="通知中心设置页">
 
 ## 功能
 
@@ -14,27 +23,39 @@ DeepSeek Harness 的**通知中心**：把标签页鲸鱼图标变成状态灯�
 | 🟠 琥珀色 | 有会话**有事等您处理**：提问 / 审批 / 计划审核 | 处理完后自动消失 |
 | ⚫ 黑色 | 一切正常（官方原版图标） | 默认状态 |
 
+标签页上的样子（绿 = 有会话跑完了）：
+
+![标签页状态灯](docs/images/tab-status-light.png)
+
 颜色与侧边栏的绿点、琥珀点**用的是同一份官方信号**，永远同步。只响应主会话，子代理不影响。绿色与琥珀同时存在时显示绿色。
 
-### 2. 系统通知（本项目的增量）
+三种颜色都可以在设置页改（含「默认色」，不配置则沿用官方原版图标）。
+
+### 2. 系统通知
 
 - **完成通知**：会话 `completed` 由 false → true 时触发
 - **待处理通知**：出现新的待处理交互时触发
 - **通知文案**：标题＝会话名（多条聚合时补 `+N`），正文＝通知类型（完成＝「会话已完成」；待处理＝「待审批 / 向你提问 / 计划待审核」，未知类型回退到「有交互等待处理」）
-- 必居其一才弹：**仅在页面不在前台时提醒**（固定策略）——「前台」= 标签页可见**且**窗口有焦点；切到别的标签页、最小化、或浏览器被别的应用压在后面时都会提醒，只有你正看着 DSH 时才不打扰
+- **只在你不看的时候弹**（固定策略）——「前台」= 标签页可见**且**窗口有焦点；切到别的标签页、最小化、被别的应用压在后面时都会提醒，只有你正看着 DSH 时才不打扰
 - **聚合与去重**：300ms 窗口合并，同一会话同一类型只弹一次；多条合并为「标题 +N」
 - **点击通知** = 聚焦窗口并打开对应会话
-- **提示音（音效可选）**：完成 / 待处理各自可下拉选音效，共 **45 个 opencode 内置音效**（Alert / Bip-bop / Staplebops / Nope / Yup）+ 2 个内置合成音；**悬浮即试听**，点选即生效；音量可调。开启提示音时会静音系统提示音，改用插件自带音
+- **提示音**：完成 / 待处理各自可下拉选音效（**悬浮即试听**），音量可调；开启提示音时会静音系统提示音，改用插件自带音
 - **常驻可选**：可关闭「自动隐藏」，通知就一直留在屏幕上，直到你点击或手动关闭（默认开启自动隐藏，由系统自行收起）
-- 通知图标跟随您配置的状态灯颜色（绿 / 琥珀）
+- 通知图标跟随你配置的状态灯颜色
+
+| 完成通知（绿） | 待处理通知（琥珀） |
+|---|---|
+| ![完成通知](docs/images/notification-done.png) | ![待处理通知](docs/images/notification-pending.png) |
+
+> 通知由浏览器发出（本机是 Chrome），所以卡片上显示的是浏览器与站点 `127.0.0.1:3080`。
 
 ### 3. 音效库
 
-完成与待处理各有一个下拉，共 45 个音效（随包分发，来自 opencode 内置音效库）：
+完成提示音与待处理提示音各有一个下拉，共 **47 个条目**：45 个 opencode 内置音效 + 2 个插件自带的合成音。
 
 | 音效包 | 条目 |
 |---|---|
-| 内置 | 上行双音（完成默认）、下行双音（待处理默认） |
+| 内置（合成音） | Chime Up（完成默认，上行双音）、Chime Down（待处理默认，下行双音） |
 | Alert | Alert 01–10 |
 | Bip-bop | Bip-bop 01–10 |
 | Staplebops | Staplebops 01–07 |
@@ -42,40 +63,62 @@ DeepSeek Harness 的**通知中心**：把标签页鲸鱼图标变成状态灯�
 | Yup | Yup 01–06 |
 
 - **悬浮即试听**：鼠标划过下拉里的条目就播该音效（120ms 防抖，扫过整列不会连成一片）
-- **点选即生效**：选中后该类型通知就播这个音，当前项打 \`✓\`
-- **样式照官方下拉**：无边框 + ghost 填充 + 8px 圆角 + 右侧 12px chevron，hover 换填充色（与设置面板里的官方下拉一致）
+- **点选即生效**：选中后该类型通知就播这个音，当前项打 `✓`
+- **样式照官方**：触发按钮＝官方语言下拉的 `.selector`（36px 高、18px 圆角胶囊）；面板＝官方 `Menu`（`bg-layer-3` + 0.5px 描边 + 6px 圆角），条目标高用官方的 hover 填充色
 - 音效由宿主半在 `/notice-center-sounds/<id>.mp3` 提供；路由不可用时**自动回退内置合成音**，不会变哑
-- 老配置无需迁移：没配过音效时仍用原来的上行/下行合成音
+- 老配置无需迁移：没配过音效时仍用 Chime Up / Chime Down
 
-### 4. 设置页
+## 使用
 
-设置 → **通知中心**（导航项），分两组：
-
-| 分组 | 项 |
-|---|---|
-| 颜色 | 完成色、待处理色、默认色（未配置=官方原版）、颜色状态灯总开关 |
-| 通知 | 系统通知总开关（默认**关闭**）、自动隐藏开关（默认**开启**）、提示音开关、提示音音量、**完成/待处理音效下拉（悬浮试听）**、浏览器授权状态与授权按钮 |
-
-系统通知为 opt-in：首次开启需在设置页点击授权按钮（浏览器要求用户手势），拒绝后需到站点设置里重置。
-
-## 要求
-
-- 官方版本 DeepSeek Harness（本机实测：Harness 0.1.5-rc.1 + 客户端包 0.1.5-rc.2，适配范围 0.1.2-rc.1+）
-- 系统通知需要**安全上下文**：`http://127.0.0.1:3080` 或 `localhost` 可用；用**局域网 IP** 访问时浏览器 Notification API 不可用
+1. **打开设置页** —— 设置 → **通知中心**
+2. **开启系统通知** —— 打开「系统通知」总开关，浏览器会弹出授权请求，选「允许」（被拒绝时设置页会提示，需要到浏览器的站点设置里恢复）
+3. **调音量 / 选音效** —— 展开「更多通知设置」：拖音量条；在「完成提示音 / 待处理提示音」下拉里**鼠标划过即可试听**，点一下选中
+4. **改颜色（可选）** —— 展开「鲸鱼状态灯」：点色块或直接填 `#RRGGBB`，行尾 ↺ 恢复默认
+5. **就这样** —— 之后你切走或最小化时，会话跑完 / 有事等你都会收到通知；点通知直接跳回那个会话
 
 ## 安装
 
-发布形态（推荐）：
+`dsh plugin` 是 **pnpm 的转发器**（在 profile 目录里跑 pnpm，再把新装的 bundle 补进
+`dsh.profile.bundles`），所以 registry 包名、git 仓库、tarball、本地路径都能直接装。
+
+### 1. 从 npm 安装（推荐）
 
 ```sh
 dsh plugin --profile web add dsh-notice-center
 ```
 
-本机当前用的是本地 link：profile 的 `dependencies` 加
+包页：<https://www.npmjs.com/package/dsh-notice-center>（当前 1.2.0）
+
+### 2. 直接从 GitHub 装（无需先发布）
+
+```sh
+dsh plugin --profile web add github:SCP-QQ/dsh-notice-center
+# 或走 SSH（本机 HTTPS 受代理影响时）
+dsh plugin --profile web add git+ssh://git@github.com/SCP-QQ/dsh-notice-center.git
+```
+
+### 3. 从 tarball 装（离线 / 内网分发）
+
+```sh
+npm pack                                        # 生成 dsh-notice-center-1.2.0.tgz
+dsh plugin --profile web add ./dsh-notice-center-1.2.0.tgz
+```
+
+### 4. 本地 link（改代码时用）
+
+profile 的 `dependencies` 加
 `"dsh-notice-center": "link:<项目目录>/dsh-notice-center"`，
 `dsh.profile.bundles` 加 `"dsh-notice-center"`。
 
+> 前三种装完都要**重启 Harness**；宿主半的依赖只有 `@deepseek-ai/schemastery`（npm 上有），
+> 不需要 profile 额外提供任何 `@deepseek-ai/*` 包。
+
 **重启要求分两半**：改浏览器半 `lib/client.cjs` 免重启（HMR 会 stat-poll 并通知浏览器重载该插件 bundle，刷新页面可确保干净重载）；**改宿主半 `lib/index.mjs` 必须重启 Harness**（宿主半热重载依赖 `cordis-plugin-hmr`，需 loader 带 `--expose-internals`，实测未生效）。首次安装与任何改名也必须重启。
+
+## 要求
+
+- 官方版本 DeepSeek Harness（本机实测：Harness 0.1.5-rc.1 + 客户端包 0.1.5-rc.2，适配范围 0.1.2-rc.1+）
+- 系统通知需要**安全上下文**：`http://127.0.0.1:3080` 或 `localhost` 可用；用**局域网 IP** 访问时浏览器 Notification API 不可用
 
 ## 卸载
 
@@ -92,14 +135,25 @@ dsh plugin --profile web remove dsh-notice-center
 - 刷新页面后绿色状态丢失：这是官方「已完成通知」的内存态语义，属正常现象
 - 系统级勿扰模式（Windows 专注助手等）会吞掉通知，插件无法感知
 
+## 开发
+
+```sh
+npm test            # 宿主半 + 浏览器半冒烟测试
+npm run test:host   # 只跑宿主半
+npm run test:client # 只跑浏览器半
+```
+
+CI 在 push / PR 时跑同一套（`.github/workflows/test.yml`）。
+
 ## 目录结构
 
 ```
 package.json          包元数据（dsh-notice-center）
 cordis.patch.yml      bundle patch 层（insert id: notice-center）
-lib/index.mjs         宿主半：向 settings 注册 notice-center 命名空间 schema
+lib/index.mjs         宿主半：settings schema + /notice-center-sounds 音效路由
 lib/client.cjs        浏览器半：favicon 状态机 + 系统通知 + 音效库 + 设置页
-assets/audio/*.mp3    45 个音效（取自 opencode，MIT；来源见 assets/audio/README.md）
+assets/audio/*.mp3    45 个 opencode 音效（MIT；来源见 assets/audio/README.md）
+docs/images/*.png     README 用的截图
 test/host-half.smoke.mjs   宿主半冒烟测试
 test/client-half.smoke.mjs 浏览器半冒烟测试（npm test 跑两个）
 .github/workflows/test.yml  CI：push / PR 时跑 pnpm test

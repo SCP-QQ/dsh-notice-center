@@ -7,3 +7,8 @@ node_modules/
 backup-profile/
 *.bak-*
 _tmp-*
+# npm pack 产物与工作区内 npm 缓存（沙箱内不能写全局缓存时用 --cache .npm-cache）
+*.tgz
+.npm-cache/
+# npm 凭据（本地放 granular token 用，绝不能入库）
+.npmrc

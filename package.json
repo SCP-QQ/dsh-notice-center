@@ -6,7 +6,8 @@
   "scripts": {
     "test": "node test/host-half.smoke.mjs && node test/client-half.smoke.mjs",
     "test:host": "node test/host-half.smoke.mjs",
-    "test:client": "node test/client-half.smoke.mjs"
+    "test:client": "node test/client-half.smoke.mjs",
+    "prepublishOnly": "npm test"
   },
   "main": "lib/index.mjs",
   "exports": {
@@ -42,6 +43,14 @@
       ],
       "platform": "web"
     }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SCP-QQ/dsh-notice-center.git"
+  },
+  "homepage": "https://github.com/SCP-QQ/dsh-notice-center#readme",
+  "bugs": {
+    "url": "https://github.com/SCP-QQ/dsh-notice-center/issues"
   },
   "keywords": [
     "dsh",
