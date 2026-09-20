@@ -59,9 +59,9 @@ Three colours are encoded directly into the tab icon, driven by **the same offic
 
 | Whale colour | Meaning | When it clears |
 |---|---|---|
-| 🟢 Green | A session **finished** while you were not watching it | Clears once you open that session; back to default once you have opened them all |
-| 🟠 Amber | A session **awaits you**: question / approval / plan review | Clears once handled |
-| ⚫ Black | All clear (the stock icon) | Default state |
+| <img src="docs/images/whale-green.svg" width="20" alt="Green"> Green | A session **finished** while you were not watching it | Clears once you open that session; back to default once you have opened them all |
+| <img src="docs/images/whale-amber.svg" width="20" alt="Amber"> Amber | A session **awaits you**: question / approval / plan review | Clears once handled |
+| <img src="docs/images/whale-black.svg" width="20" alt="Black"> Black | All clear (the stock icon) | Default state |
 
 ![Tab status light: top to bottom — finished (green), pending (amber), default (black)](docs/images/tab-status-light.png)
 
@@ -90,7 +90,6 @@ Other behaviour:
 - **Click a notification** = focus the window and open that session
 - **Only while you are not looking** — "foreground" means the tab is *visible* **and** the window has focus. Switching tabs, minimising, or having another app on top all notify. To also notify while you are looking (you are parked in a session but away from the screen, e.g. on your phone), turn on **Notify in the foreground**
 - **Aggregation**: events within 300ms are merged into one notification, with `+N` appended to the title
-- **Deduplication**: the same session and event type notifies once
 - **Optional persistence**: turn off **Auto hide** and the notification stays on screen until you dismiss it
 - The notification icon follows your configured status-light colours
 
