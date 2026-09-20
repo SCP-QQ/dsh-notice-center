@@ -199,7 +199,7 @@ cordis.patch.yml           bundle patch layer (insert id: notice-center)
 lib/index.mjs              host half: settings schema + the /notice-center-sounds route
 lib/client.cjs             browser half: favicon state machine + notifications + sounds + settings UI
 assets/audio/*.mp3         45 opencode sound clips (MIT; see assets/audio/README.md)
-docs/images/*.png          screenshots used by the READMEs
+docs/images/          README screenshots and the social-preview card
 test/host-half.smoke.mjs   host-half smoke test
 test/client-half.smoke.mjs client-half smoke test (npm test runs both)
 .github/workflows/test.yml CI: pnpm test on push / PR

@@ -5,6 +5,8 @@
 [![test](https://github.com/SCP-QQ/dsh-notice-center/actions/workflows/test.yml/badge.svg)](https://github.com/SCP-QQ/dsh-notice-center/actions/workflows/test.yml)
 [![npm](https://img.shields.io/npm/v/dsh-notice-center.svg)](https://www.npmjs.com/package/dsh-notice-center)
 
+<img src="docs/images/banner.jpg" alt="dsh-notice-center 会话通知 —— 让每一条消息，都不错过" width="100%">
+
 DeepSeek Harness 的**通知中心**：把标签页上的鲸鱼图标变成状态灯，并在你不在看的时候主动提醒你 —— 会话跑完了，或者有事情等你拍板。
 
 包名 `dsh-notice-center`、插件实例 id `notice-center`、设置命名空间 `notice-center`。
@@ -203,7 +205,7 @@ cordis.patch.yml      bundle patch 层（insert id: notice-center）
 lib/index.mjs         宿主半：settings schema + /notice-center-sounds 音效路由
 lib/client.cjs        浏览器半：favicon 状态机 + 系统通知 + 音效库 + 设置页
 assets/audio/*.mp3    45 个 opencode 音效（MIT；来源见 assets/audio/README.md）
-docs/images/*.png     README 用的截图
+docs/images/          README 截图与社交预览图
 test/host-half.smoke.mjs   宿主半冒烟测试
 test/client-half.smoke.mjs 浏览器半冒烟测试（npm test 跑两个）
 .github/workflows/test.yml  CI：push / PR 时跑 pnpm test
