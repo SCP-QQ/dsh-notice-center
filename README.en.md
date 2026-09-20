@@ -163,7 +163,7 @@ Remove the dependency and the `dsh.profile.bundles` entry, then restart — noth
 2. **Turn on system notifications** — flip the **System notifications** master switch; the browser asks for permission, choose *Allow*. If it was denied, the settings page tells you, and you must re-enable it in the browser's **site settings** (browsers do not ask twice)
 3. **Tune as you like** — expand the two groups: change colours, pick sounds, set volume, toggle **Notify in the foreground** / **Auto hide**
 
-<img src="docs/images/settings.png" width="440" alt="Notification center settings page">
+<img src="docs/images/settings-en.png" width="440" alt="Notification center settings page">
 
 After that, whenever you switch away or minimise, a finished session or a pending interaction notifies you — and clicking the notification jumps straight back to that session.
 
