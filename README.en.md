@@ -27,7 +27,7 @@ The **top of the settings page, left-aligned** (above the Whale status light gro
 | 🟠 Amber | A session **awaits you**: question / approval / plan review | Clears once handled |
 | ⚫ Black | All clear (the stock icon) | Default state |
 
-In the tab (green = a session finished):
+In the tab, top to bottom — finished (green), pending (amber), default (black):
 
 ![Tab status light](docs/images/tab-status-light.png)
 
