@@ -75,15 +75,15 @@ Two events raise a notification, and by default **only while you are not looking
 
 | Event | Trigger | What the notification says |
 |---|---|---|
-| **Finished** | A session completes | Title = session name; body = `会话已完成` (localised), with the turn duration appended when it is a single notification (e.g. `会话已完成 · 本轮总用时 2分13秒`) |
-| **Pending** | A new pending interaction appears | Title = session name; body = interaction type: `待审批 · <tool>` / `请你选择` (`请你多选` for multi-select, `请你填写` when there are no options, `向你提问（N 个）` for a batch) / `计划待审核`; unknown types fall back to `有交互等待处理` |
+| **Finished** | A session completes | Title = session name; body = `Session finished`, with the turn duration appended when it is a single notification (e.g. `Session finished · turn took 3s`) |
+| **Pending** | A new pending interaction appears | Title = session name; body = the interaction type: `Approval needed · <tool>` / `Choose an option` (`Choose options` for multi-select, `Type an answer` when there are no options, `N questions` for a batch) / `Plan review`; unknown types fall back to `Something awaits you` |
 
 | Finished (green) | Pending (amber) |
 |---|---|
-| ![Finished notification](docs/images/notification-done.png) | ![Pending notification](docs/images/notification-pending.png) |
+| ![Finished notification](docs/images/notification-done-en.png) | ![Pending notification](docs/images/notification-pending-en.png) |
 
 > Notifications are raised by the browser (Chrome here), so the card shows the browser and the site `127.0.0.1:3080` — that is expected.
-> Notification bodies are localised; the examples above show the Chinese copy.
+> The screenshots show the English UI; notification copy is localised at runtime.
 
 Other behaviour:
 
