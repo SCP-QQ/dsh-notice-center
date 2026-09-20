@@ -19,6 +19,8 @@
  *      分组行整行可点且开关/箭头各自拦住冒泡
  *  14. 设置页页脚：插件名 + 版本号，整块是指向仓库的链接（href/target/rel 正确），
  *      位置在「鲸鱼状态灯」分组行上方那一行（根节点的第一个子项），左对齐且不靠 marginTop:auto
+ *  15. 同一会话连续完成两次 → 弹两次（去重只管「同一次完成」；completed 路径与
+ *      选中会话的 running 边沿路径都覆盖）
  *
  * 用法：node test/client-half.smoke.mjs
  * 退出码 0 = 全部通过；1 = 有失败项。
@@ -281,6 +283,35 @@ check("图标是鲸鱼 data URL", typeof done?.options?.icon === "string" && don
 tick();
 await settle();
 check("同一次完成不重复发", notifications.length === 1, `发了 ${notifications.length} 条`);
+
+/* ==================== 3b. 同一会话连续完成两次 → 弹两次 ==================== */
+/* 去重键只管「同一次完成事件」：会话重新运行会让 completed 归 false，键随即被清掉，
+   所以再次跑完必须重新提醒。曾经把它误读成「同一会话只提醒一次」（2026-09-20 澄清）。 */
+reset();
+runToDone("c-twice", "修复登录失败的问题");
+await settle();
+check("第一次完成发一条", notifications.length === 1, `发了 ${notifications.length} 条`);
+runToDone("c-twice", "修复登录失败的问题");
+await settle();
+check("同一会话再次完成要再发一条（去重只管同一次完成）", notifications.length === 2, `发了 ${notifications.length} 条`);
+
+/* 3c. 选中会话走 running 边沿路径（completed 恒为 false），语义必须一致。 */
+reset();
+sessionState = { byId: {}, current: void 0 };
+tick();
+reset();
+sessionState = { current: "c-sel-twice", byId: { "c-sel-twice": row("c-sel-twice", "选中的会话", false, true) } };
+tick();
+sessionState = { current: "c-sel-twice", byId: { "c-sel-twice": row("c-sel-twice", "选中的会话", false, false) } };
+tick();
+await settle();
+check("选中会话跑完发一条", notifications.length === 1, `发了 ${notifications.length} 条`);
+sessionState = { current: "c-sel-twice", byId: { "c-sel-twice": row("c-sel-twice", "选中的会话", false, true) } };
+tick();
+sessionState = { current: "c-sel-twice", byId: { "c-sel-twice": row("c-sel-twice", "选中的会话", false, false) } };
+tick();
+await settle();
+check("选中会话再次跑完要再发一条", notifications.length === 2, `发了 ${notifications.length} 条`);
 
 /* ==================== 4. 聚合 ==================== */
 reset();
