@@ -265,7 +265,7 @@ sessions.list changes
         ├─ detectTransitions() official completed false->true; new sessions in pendingInteractions
         │     └─ queueNotification(kind, sessionId, label, typeLabel)
         │          ├─ master switch off            -> dropped
-        │          ├─ same session+kind already sent -> dropped (dedup)
+        │          ├─ this same completion already queued -> dropped (no double-send)
         │          └─ enqueued + 300ms aggregation window
         └─ targetOf() -> favicon becomes green / amber / default
 

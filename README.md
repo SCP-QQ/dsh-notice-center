@@ -264,7 +264,7 @@ sessions.list 变化
         ├─ detectTransitions() 官方 completed false→true；pendingInteractions 新增会话
         │     └─ queueNotification(kind, sessionId, label, typeLabel)
         │          ├─ 总开关关闭 → 丢弃
-        │          ├─ 同会话同类型已发过 → 丢弃（去重）
+        │          ├─ 同一次完成已入队 → 丢弃（两条检测路径不得重复发）
         │          └─ 入队 + 300ms 聚合窗口
         └─ targetOf() → favicon 换成 绿 / 琥珀 / 默认
 

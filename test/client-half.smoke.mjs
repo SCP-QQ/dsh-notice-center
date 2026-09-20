@@ -280,7 +280,7 @@ check("图标是鲸鱼 data URL", typeof done?.options?.icon === "string" && don
 
 tick();
 await settle();
-check("同一会话同一类型只发一次", notifications.length === 1, `发了 ${notifications.length} 条`);
+check("同一次完成不重复发", notifications.length === 1, `发了 ${notifications.length} 条`);
 
 /* ==================== 4. 聚合 ==================== */
 reset();
