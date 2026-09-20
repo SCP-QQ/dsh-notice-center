@@ -5,6 +5,8 @@
 [![test](https://github.com/SCP-QQ/dsh-notice-center/actions/workflows/test.yml/badge.svg)](https://github.com/SCP-QQ/dsh-notice-center/actions/workflows/test.yml)
 [![npm](https://img.shields.io/npm/v/dsh-notice-center.svg)](https://www.npmjs.com/package/dsh-notice-center)
 
+<img src="docs/images/banner-en.jpg" alt="dsh-notice-center — Get Every Message, Never Miss a Thing" width="100%">
+
 A **notification center** for DeepSeek Harness: it turns the tab's whale icon into a status light and gets your attention while you are looking elsewhere — a session finished, or something is waiting for your decision.
 
 Package `dsh-notice-center`, plugin instance id `notice-center`, settings namespace `notice-center`.
