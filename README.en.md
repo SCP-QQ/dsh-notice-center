@@ -116,7 +116,9 @@ Finished and pending each have their own dropdown, **47 entries** in total: 2 bu
 
 ### Requirements
 
-- **Official DeepSeek Harness** (supported range `0.1.2-rc.1+`; verified here on `0.1.5-rc.1` with client packages `0.1.5-rc.2`)
+- **Official DeepSeek Harness**: `1.4.0` requires **`0.1.7-rc.2+`**; `1.3.x` supports `0.1.2-rc.1+`
+  - The range is declared in `engines.dsh` and the `@deepseek-ai/dsh-*` peers, guarded by `test/compat-range.smoke.mjs`. The two lines split by host version: **the Market never offers 1.4.0 to an older host, and the DSH core refuses to load it** — older hosts simply stay on `1.3.x` with no update prompt.
+  - The version gate only compares version strings and cannot detect a removed API (0.1.7 dropped `settings.register` while the old declaration still passed), so never treat it as a compatibility guarantee on its own.
 - System notifications need a **secure context** — `http://127.0.0.1:3080` or `localhost` works; over a **LAN IP** the browser's Notification API is unavailable (a browser restriction, not a plugin issue)
 
 ### Option 1: from npm (recommended)
@@ -221,23 +223,30 @@ The plugin has **two halves** running in different processes, exchanging configu
 
 | Part | File | Runs in | Responsibility |
 |---|---|---|---|
-| **Host half** | `lib/index.mjs` (128 lines) | Harness main process (Node) | ① Register the `notice-center` settings namespace schema; ② serve `/notice-center-sounds/<id>.mp3` |
-| **Browser half** | `lib/client.cjs` (1344 lines) | Browser (plugin bundle) | favicon state machine + notification state machine + sound library + settings page |
-| **Bundle patch** | `cordis.patch.yml` | Loader layer | Insert one row `id: notice-center` into the plugin tree |
+| **Host half** | `lib/index.mjs` | Harness main process (Node) | ① Declare the `Config` schema (settings form, write validation and the legacy `settings.yaml` import all derive from it); ② serve `/notice-center-sounds/<id>.mp3` |
+| **Browser half** | `lib/client.cjs` | Browser (plugin bundle) | favicon state machine + notification state machine + sound library + settings page |
+| **Bundle patch** | `cordis.patch.yml` | Loader layer | Insert one row `id: notice-center` into the plugin tree (that id IS the settings namespace) |
 
 **The host half's two optional channels**:
 
-- `ctx.inject(["settings"], …)` — registers the schema; a success line is logged to the console as proof
+- `ctx.inject(["settings"], …)` — declares "this plugin ships its own page": `settings.configure({ auto: false }, ctx.fiber)`. The owner must be the plugin's own fiber (`describe()` looks the policy up by `entry.fiber`, and the `inject` child is a different fiber)
 - `ctx.inject(["webServer"], …)` — mounts the sound route. When the service is absent the route is not mounted and the browser half falls back to the built-in chime
 
-**Why the host half does not import `@deepseek-ai/dsh-settings`**: since `0.1.2-rc.1` that package no longer exports `settingsNamespace()`, and `register` validates the kebab-case string itself, so passing a plain string is enough. **That keeps the host half's only runtime dependency at `@deepseek-ai/schemastery`** — and because profiles default to `autoInstallPeers: false`, resolving any `@deepseek-ai` peer would actually fail on a version mismatch and break loading. This is what makes a clean registry install possible.
+**The settings contract (since 0.1.7 — the easiest thing to break silently here)**:
+
+- The form is derived from the **plugin's own Config**: dsh-settings' `describe()` reads the entry fiber's `runtime.Config`, and the entry id is the namespace — the plugin **no longer registers a namespace** (the old `settings.register(ns, schema)` was removed in 0.1.7).
+- **Every field must be `.volatile()`**: `volatileForm()` only projects fields under the nearest volatile ancestor, so one unmarked field disappears from the settings page entirely (`test/host-half.smoke.mjs` asserts this field by field). `.volatile()` requires **schemastery ≥ 3.18.4**.
+- Existing users need no manual migration: at startup dsh-settings reads `<DSH_HOME>/settings.yaml`, writes each section into the entry carrying the **same id**, then renames the file to `settings.yaml.imported`. Our section name equals the entry id (`notice-center`).
+
+**Why the host half does not import `@deepseek-ai/dsh-settings`**: it keeps the host half's only runtime dependency at `@deepseek-ai/schemastery` — and because profiles default to `autoInstallPeers: false`, resolving any `@deepseek-ai` peer would actually fail on a version mismatch and break loading. This is what makes a clean registry install possible.
 
 **Where the browser half gets its data** (all official client services; the plugin holds no state of its own):
 
 | Service | Provided by | Used for |
 |---|---|---|
-| `sessions` | `@deepseek-ai/dsh-api-session-controller/client` | Session list snapshot: `completed` / `origin` / `running` / `current` |
-| `uiSession` | `@deepseek-ai/dsh-client-ui-session` | `pendingInteractions`: `Map<sessionId, { kind, … }>` |
+| `configForms` | `@deepseek-ai/dsh-client-ui-settings` | `configForms.get(entryId)` reads and writes settings (the old `settingsScope` was removed in 0.1.7); the snapshot carries `status` / `writable` |
+| `sessions` | `@deepseek-ai/dsh-api-session-controller/client` | Session list snapshot: `origin` / `running` / `displayTitle` |
+| `uiSession` | `@deepseek-ai/dsh-client-ui-session` | `sessionStatus`: `Map<sessionId, { running, pendingInteraction, completionUnread }>` — 0.1.7 removed both the row fields `completed` / `pendingInteraction` and the `pendingInteractions` store; the official workspace session rows use the same mapping (`completed` ≡ `completionUnread`) |
 
 The sound route is deliberately narrow: only `^[a-z0-9-]+\.mp3$` filenames are served (no path traversal), and because the audio is a package constant it is cached `immutable`.
 

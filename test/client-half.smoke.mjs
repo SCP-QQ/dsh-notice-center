@@ -38,8 +38,32 @@ let visibility = "hidden";
 let focused = false;
 const notifications = [];
 const opened = [];
-let sessionState = { byId: {}, current: void 0 };
+let sessionState = { byId: {} };
 let pendingMap = new Map();
+/**
+ * 0.1.7：插件只认 uiSession.sessionStatus（Map<会话 id, {running, pendingInteraction,
+ * completionUnread}>）—— 会话行的 completed / pendingInteraction 字段已删。这里把上面的
+ * 测试模型（行上的 completed/running + pendingMap）投影成官方状态。
+ */
+const statusListeners = [];
+let statusSnapshot = new Map();
+const deriveStatus = () => {
+  const next = new Map();
+  for (const row of Object.values(sessionState.byId)) {
+    const status = { running: row.running === true, completionUnread: row.completed === true };
+    const pending = pendingMap.get(row.id);
+    if (pending !== void 0) status.pendingInteraction = pending;
+    next.set(row.id, status);
+  }
+  return next;
+};
+const sessionStatus = {
+  getSnapshot: () => statusSnapshot,
+  subscribe: (fn) => {
+    statusListeners.push(fn);
+    return () => {};
+  }
+};
 const settingsValue = {};
 const strings = {};
 /** en 字典：第 13 节断言 zh/en key 集合一致。 */
@@ -47,7 +71,7 @@ const stringsEn = {};
 /** 第 13 节：apply 期间从 slots.register 截获的设置页组件。 */
 let registeredSection;
 const listListeners = [];
-const pendingListeners = [];
+
 const scopeListeners = [];
 
 class FakeNotification {
@@ -61,9 +85,67 @@ class FakeNotification {
 FakeNotification.permission = "granted";
 
 const linkEl = { href: "http://127.0.0.1:3080/favicon.svg" };
+
+/* ==================== 导航图标桩 ====================
+ * 官方 settings.section 的导航图标按 section id 硬编码，notice-center 回退成齿轮
+ * （viewBox 0 0 16 16、stroke 型 path）；插件要把「通知中心」那颗 svg 换成主人给的
+ * 铃铛（viewBox 0 0 1024 1024、合并后两块 fill path）。这里造一颗真 nav：
+ * 2-path 的齿轮（常规路径）+ 1-path 的（走「只追加克隆」兜底）+ 一行不相干的（别动）。 */
+const writes = { set: 0, remove: 0 };
+const makeEl = (tagName, attrs = {}) => {
+  const own = new Map(Object.entries(attrs));
+  const children = [];
+  return {
+    tagName,
+    children,
+    textContent: "",
+    getAttribute: (name) => (own.has(name) ? own.get(name) : null),
+    setAttribute: (name, value) => {
+      writes.set += 1;
+      own.set(name, String(value));
+    },
+    removeAttribute: (name) => {
+      writes.remove += 1;
+      own.delete(name);
+    },
+    appendChild: (child) => {
+      children.push(child);
+      return child;
+    },
+    cloneNode: () => makeEl(tagName, Object.fromEntries(own)),
+    querySelectorAll: (selector) => (selector === "path" ? children.filter((child) => child.tagName === "path") : []),
+    querySelector: (selector) => (selector === "svg" ? children.find((child) => child.tagName === "svg") ?? null : null)
+  };
+};
+const makeSvg = (viewBox, paths) => {
+  const svg = makeEl("svg", { viewBox, width: "16", height: "16", fill: "none" });
+  for (const attrs of paths) svg.appendChild(makeEl("path", attrs));
+  return svg;
+};
+const makeNavButton = (label, svg) => {
+  const button = makeEl("button");
+  button.textContent = label;
+  button.appendChild(svg);
+  return button;
+};
+/* path 的 d 用占位串就够 —— 断言的是「被换掉」，不是官方齿轮的真实矢量数据。 */
+const gearSvg = makeSvg("0 0 16 16", [
+  { d: "M0 0 gear-1", stroke: "currentColor" },
+  { d: "M0 0 gear-2" }
+]);
+const singleSvg = makeSvg("0 0 16 16", [{ d: "M0 0 single" }]);
+const otherSvg = makeSvg("0 0 16 16", [{ d: "M0 0 other" }]);
+const navButtons = [
+  makeNavButton("通知中心", gearSvg),
+  makeNavButton("通知中心", singleSvg),
+  makeNavButton("别的设置项", otherSvg)
+];
+const navEl = { querySelectorAll: (selector) => (selector === "button" ? navButtons : []) };
+
 const fakeDocument = {
   head: { querySelector: () => linkEl },
-  querySelector: () => null,
+  /* 全项目只有导航图标这一处用 document.querySelector，其余选择器一律 null。 */
+  querySelector: (selector) => (selector === '[role="dialog"] nav' ? navEl : null),
   querySelectorAll: () => [],
   documentElement: {},
   addEventListener: () => {},
@@ -95,13 +177,23 @@ globalThis.document = fakeDocument;
 globalThis.window = globalThis;
 globalThis.addEventListener = () => {};
 globalThis.removeEventListener = () => {};
+let navIconObserverCallback = null;
 globalThis.MutationObserver = class {
+  constructor(callback) {
+    navIconObserverCallback = callback;
+  }
   observe() {}
   disconnect() {}
 };
-globalThis.requestAnimationFrame = (fn) => {
-  fn();
+/* rAF 全项目只有导航图标在用：改成入队、由测试手动 flush —— 真浏览器里 rAF 一定在
+   apply() 同步跑完（含 locale.register）之后才触发，同步立即执行会拿到还没注册的文案。 */
+const rafQueue = [];
+globalThis.requestAnimationFrame = (callback) => {
+  rafQueue.push(callback);
   return 0;
+};
+const flushRaf = () => {
+  while (rafQueue.length > 0) rafQueue.shift()();
 };
 
 /* 受控时钟：用时断言需要确定的毫秒差（客户端仅新增代码用 Date.now）。 */
@@ -131,26 +223,50 @@ const jsx = (type, props, key) => {
   jsxNodes.push(node);
   return node;
 };
+/* 宿主静态模块表里 primitives 的**真名**（@deepseek-ai/dsh-client-ui-primitives@0.1.7-rc.2
+ * 的导出节选：图标命名是 Icon<Name>Outline<Regular|Medium>，没有 `…14` 那一套）。
+ * 名单外的成员直接抛错 —— 旧桩对任何名字都造一个假组件，于是「宿主根本没有这个
+ * 导出」的白屏（IconChevronDownOutline14 / IconRefreshOutline14）一路绿灯放行，
+ * 设置页在真宿主上是空的、测试却全绿。新增 primitive 引用前先在宿主包里确认导出。 */
+const primitivesExports = new Set([
+  "Switch",
+  "IconChevronDownOutlineRegular",
+  "IconRefreshOutlineRegular"
+]);
 const primitivesStub = new Proxy({}, {
   get: (_target, name) => {
+    if (typeof name === "string" && !primitivesExports.has(name)) {
+      throw new Error(`host primitives has no export "${name}"`);
+    }
     const marker = (props) => ({ primitive: String(name), props: props ?? {} });
     marker.__primitive = String(name);
     return marker;
   }
 });
+/** 设置页 hook 调用计数（第 15 节：hook 数量不得随 status 变化，否则 React 抛错白屏）。 */
+const hookCalls = { count: 0 };
 const requireMock = (name) => {
   if (name === "@deepseek-ai/dsh-client-ui-primitives") return primitivesStub;
   if (name === "react") return {
     /* 必须返回真实快照：否则设置页读到的 value 是 {}，所有行都落默认值，断言就没有意义。 */
-    useSyncExternalStore: (_subscribe, getSnapshot) => getSnapshot(),
+    useSyncExternalStore: (_subscribe, getSnapshot) => {
+      hookCalls.count += 1;
+      return getSnapshot();
+    },
     useState: (init) => {
+      hookCalls.count += 1;
       const setter = (value) => setter.calls.push(value);
       setter.calls = [];
       if (typeof init === "boolean") expandSetters.push(setter);
       return [typeof init === "boolean" ? true : init, setter];
     },
-    useRef: () => ({ current: void 0 }),
-    useEffect: () => {}
+    useRef: () => {
+      hookCalls.count += 1;
+      return { current: void 0 };
+    },
+    useEffect: () => {
+      hookCalls.count += 1;
+    }
   };
   if (name === "react/jsx-runtime") return { jsx, jsxs: jsx };
   return {};
@@ -160,15 +276,9 @@ check("导出 apply()", typeof client.apply === "function");
 check("导出 inject 数组", Array.isArray(client.inject), JSON.stringify(client.inject));
 
 /* ==================== 装配 ctx 并 apply ==================== */
-const pendingStore = {
-  getSnapshot: () => pendingMap,
-  subscribe: (fn) => {
-    pendingListeners.push(fn);
-    return () => {};
-  }
-};
 const scope = {
-  getSnapshot: () => ({ value: settingsValue }),
+  /* 0.1.7 的快照形状：status / value / writable / revision。 */
+  getSnapshot: () => ({ status: "ready", value: settingsValue, writable: true, revision: 1 }),
   subscribe: (fn) => {
     scopeListeners.push(fn);
     return () => {};
@@ -176,10 +286,12 @@ const scope = {
   set: (key, value) => {
     settingsValue[key] = value;
     scopeListeners.forEach((fn) => fn());
+    return Promise.resolve(true);
   },
   unset: (key) => {
     delete settingsValue[key];
     scopeListeners.forEach((fn) => fn());
+    return Promise.resolve(true);
   }
 };
 const ctx = {
@@ -193,9 +305,9 @@ const ctx = {
     },
     open: (id) => opened.push(id)
   },
-  settingsScope: { bind: () => scope },
+  configForms: { get: () => scope },
   inject: (deps, callback) => {
-    if (deps.includes("uiSession")) callback({ uiSession: { pendingInteractions: pendingStore } });
+    if (deps.includes("uiSession")) callback({ uiSession: { sessionStatus } });
   },
   effect: (fn) => {
     fn();
@@ -226,13 +338,19 @@ const ctx = {
 
 try {
   client.apply(ctx);
+  flushRaf(); /* 导航图标在 apply 的最后一帧才画（此时 locale 已注册） */
   check("apply() 执行无异常", true);
 } catch (error) {
   check("apply() 执行无异常", false, String(error));
 }
 
 /* ==================== 驱动工具 ==================== */
-const tick = () => listListeners.forEach((fn) => fn());
+/* 每次状态推进都要先发布官方 status 快照，再通知会话列表订阅者 —— 插件两个都订阅。 */
+const tick = () => {
+  statusSnapshot = deriveStatus();
+  statusListeners.forEach((fn) => fn());
+  listListeners.forEach((fn) => fn());
+};
 const settle = () => new Promise((resolve) => setTimeout(resolve, 400));
 const reset = () => {
   notifications.length = 0;
@@ -295,23 +413,25 @@ runToDone("c-twice", "修复登录失败的问题");
 await settle();
 check("同一会话再次完成要再发一条（去重只管同一次完成）", notifications.length === 2, `发了 ${notifications.length} 条`);
 
-/* 3c. 选中会话走 running 边沿路径（completed 恒为 false），语义必须一致。 */
+/* 3c. running 边沿路径：同一会话连续跑完两次要发两条（与 3b 的 completed 跃迁同语义）。
+   0.1.7 已没有「当前选中会话」这个行字段（SessionListState.current 已删），
+   running 边沿对每个主会话一视同仁 —— favicon 本来就是跨会话聚合。 */
 reset();
-sessionState = { byId: {}, current: void 0 };
+sessionState = { byId: {} };
 tick();
 reset();
-sessionState = { current: "c-sel-twice", byId: { "c-sel-twice": row("c-sel-twice", "选中的会话", false, true) } };
+sessionState = { byId: { "c-sel-twice": row("c-sel-twice", "选中的会话", false, true) } };
 tick();
-sessionState = { current: "c-sel-twice", byId: { "c-sel-twice": row("c-sel-twice", "选中的会话", false, false) } };
+sessionState = { byId: { "c-sel-twice": row("c-sel-twice", "选中的会话", false, false) } };
 tick();
 await settle();
-check("选中会话跑完发一条", notifications.length === 1, `发了 ${notifications.length} 条`);
-sessionState = { current: "c-sel-twice", byId: { "c-sel-twice": row("c-sel-twice", "选中的会话", false, true) } };
+check("跑完发一条", notifications.length === 1, `发了 ${notifications.length} 条`);
+sessionState = { byId: { "c-sel-twice": row("c-sel-twice", "选中的会话", false, true) } };
 tick();
-sessionState = { current: "c-sel-twice", byId: { "c-sel-twice": row("c-sel-twice", "选中的会话", false, false) } };
+sessionState = { byId: { "c-sel-twice": row("c-sel-twice", "选中的会话", false, false) } };
 tick();
 await settle();
-check("选中会话再次跑完要再发一条", notifications.length === 2, `发了 ${notifications.length} 条`);
+check("再次跑完要再发一条", notifications.length === 2, `发了 ${notifications.length} 条`);
 
 /* ==================== 4. 聚合 ==================== */
 reset();
@@ -394,7 +514,7 @@ check("音效库与随包文件一一对应", JSON.stringify([...shippedSounds].
 /* ==================== 9. 前台也提醒（notifyForeground） ==================== */
 /* 清场：绿灯回官方图标，避免前面用例的完成态干扰断言。 */
 reset();
-sessionState = { byId: {}, current: void 0 };
+sessionState = { byId: {} };
 tick();
 
 /* 9a 未配置＝原策略：前台保持安静。 */
@@ -414,18 +534,19 @@ check("开启前台也提醒后，前台也发通知", notifications.length === 
 check("前台通知正文＝通知类型", notifications[0]?.options?.body === "会话已完成", String(notifications[0]?.options?.body));
 
 /* 9c 主要场景：人停在当前会话（标签页可见且有焦点），却已离开屏幕。
-   官方对选中会话不置 completed，通知只能由 running 边沿补齐；且不得因此点绿灯。 */
+   0.1.7 的 completionUnread 只标「主视图之外的停顿」，所以这里的通知由 running 边沿补齐；
+   但台前完成不得因此点绿灯（绿灯只记没看着时跑完，V0-02）。 */
 reset();
-sessionState = { byId: {}, current: void 0 };
+sessionState = { byId: {} };
 tick();
 reset();
-sessionState = { current: "sel-1", byId: { "sel-1": row("sel-1", "从选中会话等结果", false, true) } };
+sessionState = { byId: { "sel-1": row("sel-1", "从选中会话等结果", false, true) } };
 tick();
-sessionState = { current: "sel-1", byId: { "sel-1": row("sel-1", "从选中会话等结果", false, false) } };
+sessionState = { byId: { "sel-1": row("sel-1", "从选中会话等结果", false, false) } };
 tick();
 await settle();
-check("选中会话在前台跑完也发通知（completed 始终不置位）", notifications.length === 1, "发了 " + notifications.length + " 条");
-check("选中会话前台通知标题＝会话名", notifications[0]?.title === "从选中会话等结果", String(notifications[0]?.title));
+check("前台跑完也发通知（completionUnread 不置位）", notifications.length === 1, "发了 " + notifications.length + " 条");
+check("前台通知标题＝会话名", notifications[0]?.title === "从选中会话等结果", String(notifications[0]?.title));
 check("前台完成不点绿灯（台前完成不记）", linkEl.href.endsWith("/favicon.svg"), linkEl.href);
 
 /* 收尾：关掉开关，不影响收尾检查。 */
@@ -434,7 +555,7 @@ delete settingsValue.notifyForeground;
 /* ==================== 10. 本轮用时（通知正文） ==================== */
 /* 清场并切到后台：用时只在能算出起点时出现。Date.now 已换成受控时钟。 */
 reset();
-sessionState = { byId: {}, current: void 0 };
+sessionState = { byId: {} };
 tick();
 reset();
 visibility = "hidden";
@@ -442,37 +563,37 @@ focused = false;
 
 /* 10a 空闲 → 运行 → 完成：133000ms = 2分13秒 */
 clock.now = 1000;
-sessionState = { current: "dur-1", byId: { "dur-1": row("dur-1", "计时会话", false, false) } };
+sessionState = { byId: { "dur-1": row("dur-1", "计时会话", false, false) } };
 tick();
 clock.now = 3000;
-sessionState = { current: "dur-1", byId: { "dur-1": row("dur-1", "计时会话", false, true) } };
+sessionState = { byId: { "dur-1": row("dur-1", "计时会话", false, true) } };
 tick();
 clock.now = 3000 + 133000;
-sessionState = { current: "dur-1", byId: { "dur-1": row("dur-1", "计时会话", true, false) } };
+sessionState = { byId: { "dur-1": row("dur-1", "计时会话", true, false) } };
 tick();
 await settle();
 check("完成通知正文带本轮总用时（分+秒补零）", notifications[0]?.options?.body === "会话已完成 · 本轮总用时 2分13秒", String(notifications[0]?.options?.body));
 
 /* 10b 不足 1 分钟只显示秒 */
 reset();
-sessionState = { byId: {}, current: void 0 };
+sessionState = { byId: {} };
 tick();
 reset();
 clock.now = 500000;
-sessionState = { current: "dur-2", byId: { "dur-2": row("dur-2", "短任务", false, false) } };
+sessionState = { byId: { "dur-2": row("dur-2", "短任务", false, false) } };
 tick();
 clock.now += 5000;
-sessionState = { current: "dur-2", byId: { "dur-2": row("dur-2", "短任务", false, true) } };
+sessionState = { byId: { "dur-2": row("dur-2", "短任务", false, true) } };
 tick();
 clock.now += 9000;
-sessionState = { current: "dur-2", byId: { "dur-2": row("dur-2", "短任务", true, false) } };
+sessionState = { byId: { "dur-2": row("dur-2", "短任务", true, false) } };
 tick();
 await settle();
 check("不足一分钟只显示秒", notifications[0]?.options?.body === "会话已完成 · 本轮总用时 9秒", String(notifications[0]?.options?.body));
 
 /* 10c 首次观察时已在跑 → 没有起点 → 正文不带用时（而不是显示 0 秒） */
 reset();
-sessionState = { byId: {}, current: void 0 };
+sessionState = { byId: {} };
 tick();
 reset();
 clock.now = 900000;
@@ -482,7 +603,7 @@ check("没有起点时不显示用时", notifications[0]?.options?.body === "会
 
 /* 10d 同批聚合为一条时不附加用时（两条各自都有用时） */
 reset();
-sessionState = { byId: {}, current: void 0 };
+sessionState = { byId: {} };
 tick();
 reset();
 clock.now = 2000000;
@@ -551,15 +672,15 @@ const AMBER_URI = "%23F59E0B";
 
 /* 12a 只有完成 → 绿 */
 reset();
-sessionState = { byId: {}, current: void 0 };
+sessionState = { byId: {} };
 pendingMap = new Map();
 tick();
-sessionState = { byId: { "pl-done": row("pl-done", "跑完了", true, false) }, current: void 0 };
+sessionState = { byId: { "pl-done": row("pl-done", "跑完了", true, false) } };
 tick();
 check("只有完成 → 绿", linkEl.href.includes(GREEN_URI), linkEl.href.slice(0, 48));
 
 /* 12b 只有待处理 → 琥珀 */
-sessionState = { byId: { "pl-wait": row("pl-wait", "等我答复", false, false) }, current: void 0 };
+sessionState = { byId: { "pl-wait": row("pl-wait", "等我答复", false, false) } };
 pendingMap = new Map([["pl-wait", { key: "pl-wait", kind: "question", sessionId: "pl-wait", questions: [] }]]);
 tick();
 check("只有待处理 → 琥珀", linkEl.href.includes(AMBER_URI), linkEl.href.slice(0, 48));
@@ -568,7 +689,7 @@ check("只有待处理 → 琥珀", linkEl.href.includes(AMBER_URI), linkEl.href
 sessionState = { byId: {
   "pl-done2": row("pl-done2", "跑完了", true, false),
   "pl-wait2": row("pl-wait2", "等我审批", false, false)
-}, current: void 0 };
+} };
 pendingMap = new Map([["pl-wait2", { key: "pl-wait2", kind: "approval", sessionId: "pl-wait2", toolName: "Bash" }]]);
 tick();
 check("完成与待处理并存 → 琥珀优先（不被掩盖）", linkEl.href.includes(AMBER_URI), linkEl.href.slice(0, 48));
@@ -714,5 +835,71 @@ check("页脚悬浮提示走 i18n（不是原始 key）", repoLink?.props.title 
 
 /* 文案：zh / en 字典 key 集合必须一致（防止只补中文） */
 check("zh / en 文案 key 集合一致", JSON.stringify(Object.keys(strings).sort()) === JSON.stringify(Object.keys(stringsEn).sort()), "zh=" + Object.keys(strings).length + " en=" + Object.keys(stringsEn).length);
+/* ==================== 15. 0.1.7 设置 API 迁移（2026-09-26 新增） ==================== */
+/* 旧 API 在 0.1.7 已彻底删除：inject 里必须换成 configForms，写错服务名浏览器半整个不加载。 */
+check("inject 用 configForms（settingsScope 在 0.1.7 已删除）", client.inject.includes("configForms") && !client.inject.includes("settingsScope"), JSON.stringify(client.inject));
+
+/* 快照的 status / writable：不可读写时只给说明，不画一堆写了不生效的控件。 */
+for (const [snapshot, key] of [
+  [{ status: "unavailable", value: settingsValue, writable: false }, "settingsUnavailable"],
+  [{ status: "ready", value: settingsValue, writable: false }, "settingsReadOnly"]
+]) {
+  jsxNodes.length = 0;
+  let tree = null;
+  let error = null;
+  try {
+    tree = registeredSection({ scope: Object.assign({}, scope, { getSnapshot: () => snapshot }), t: t13 });
+  } catch (caught) {
+    error = caught;
+  }
+  const text = tree !== null && typeof tree === "object" ? tree.props?.children : void 0;
+  const interactive = jsxNodes.filter((node) => node.type === "input" || (typeof node.type === "function" && node.type.__primitive === "Switch")).length;
+  check("status=" + snapshot.status + " / writable=false → 只给说明（" + key + "）", error === null && text === t13(key) && interactive === 0, String(text) + " | 交互控件 " + interactive);
+}
+jsxNodes.length = 0;
+const loadingTree = registeredSection({ scope: Object.assign({}, scope, { getSnapshot: () => ({ status: "loading", value: void 0, writable: false }) }), t: t13 });
+check("status=loading → 不渲染（不先用默认值画一遍再跳变）", loadingTree === null && jsxNodes.length === 0, String(loadingTree));
+
+/* 写入返回值：set/unset 在 0.1.7 返回 Promise<boolean> —— 被拒（false）或传输故障都不能同步抛。 */
+let writeError = null;
+try {
+  jsxNodes.length = 0;
+  registeredSection({ scope: Object.assign({}, scope, { set: () => Promise.reject(new Error("transport down")), unset: () => Promise.resolve(false) }), t: t13 });
+  for (const node of jsxNodes.filter((item) => item.type === "button" && typeof item.props.onClick === "function")) node.props.onClick({ stopPropagation() {} });
+} catch (caught) {
+  writeError = caught;
+}
+await settle();
+check("写入被拒 / 传输失败都不会同步抛异常", writeError === null, String(writeError));
+/* 回归（2026-09-26 白屏事故）：所有 hook 必须在 status 分支之前无条件跑完。
+   loading 那次提前 return 过，React 在 ready 那次渲染抛 "Rendered more hooks than during
+   the previous render"，插槽的错误边界把整页吞成空白 —— 这里对齐两次渲染的 hook 数量。 */
+hookCalls.count = 0;
+jsxNodes.length = 0;
+registeredSection({ scope: Object.assign({}, scope, { getSnapshot: () => ({ status: "loading", value: void 0, writable: false }) }), t: t13 });
+const loadingHooks = hookCalls.count;
+hookCalls.count = 0;
+jsxNodes.length = 0;
+registeredSection({ scope, t: t13 });
+const readyHooks = hookCalls.count;
+check("loading 与 ready 的 hook 数量一致（提前 return 会让整页白屏）", loadingHooks === readyHooks && readyHooks >= 4, "loading=" + loadingHooks + " ready=" + readyHooks);
+/* ==================== 16. 导航图标换成主人给的铃铛 ====================
+   回归（2026-09-26）：官方导航图标按 section id 硬编码、notice-center 只有齿轮，
+   插件靠改写那颗 svg 的 path 属性换图 —— 只改属性、不增删 React 管的节点，
+   幂等由「画过就整块跳过」保证（否则每次写属性都会再触发 observer，rAF 死循环）。 */
+const gearPaths = gearSvg.querySelectorAll("path");
+check("导航图标 viewBox 换成 1024 坐标系", gearSvg.getAttribute("viewBox") === "0 0 1024 1024", String(gearSvg.getAttribute("viewBox")));
+check("导航图标尺寸仍与官方一致（16×16）", gearSvg.getAttribute("width") === "16" && gearSvg.getAttribute("height") === "16", gearSvg.getAttribute("width") + "×" + gearSvg.getAttribute("height"));
+check("第 1 块 path＝铃身＋底座（同色两块合并）", String(gearPaths[0]?.getAttribute("d")).startsWith("M921.6 880.64") && String(gearPaths[0]?.getAttribute("d")).includes("M512 1024"), String(gearPaths[0]?.getAttribute("d")).slice(0, 24));
+check("铃身填色跟随主题（currentColor）", gearPaths[0]?.getAttribute("fill") === "currentColor", String(gearPaths[0]?.getAttribute("fill")));
+check("官方 stroke 画法已清掉（不清会再描一圈）", gearPaths[0]?.getAttribute("stroke") === null, String(gearPaths[0]?.getAttribute("stroke")));
+check("第 2 块 path＝蓝色高光 #3399FF", gearPaths[1]?.getAttribute("fill") === "#3399FF" && String(gearPaths[1]?.getAttribute("d")).startsWith("M665.6 353.6896"), String(gearPaths[1]?.getAttribute("fill")));
+check("官方 path 只有 1 个时只追加克隆、不删节点", singleSvg.querySelectorAll("path").length === 2, String(singleSvg.querySelectorAll("path").length));
+check("不认识的导航行一律不动", otherSvg.querySelectorAll("path")[0]?.getAttribute("d") === "M0 0 other" && otherSvg.getAttribute("viewBox") === "0 0 16 16", String(otherSvg.querySelectorAll("path")[0]?.getAttribute("d")));
+const writesAfterDraw = writes.set;
+navIconObserverCallback?.();
+flushRaf();
+check("重复调度不再写属性（防 rAF 死循环）", writes.set === writesAfterDraw, `多写了 ${writes.set - writesAfterDraw} 次`);
+
 console.log(failed === 0 ? "\n全部通过" : `\n有 ${failed} 项失败`);
 process.exit(failed === 0 ? 0 : 1);
