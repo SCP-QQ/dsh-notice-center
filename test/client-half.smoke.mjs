@@ -85,6 +85,12 @@ class FakeNotification {
 FakeNotification.permission = "granted";
 
 const linkEl = { href: "http://127.0.0.1:3080/favicon.svg" };
+/* 宿主 index.html 挂两枚 icon：dark / light 各一枚，靠 media="(prefers-color-scheme)" 区分，
+ * 浅色系统渲染的是第二枚。回归（2026-09-26「标签页图标一直默认色」）正是这么来的 ——
+ * 代码只写 querySelector 命中的第一枚，浅色主题那枚永远没被碰过。 */
+const linkElDark = { href: "http://127.0.0.1:3080/favicon-dark.svg" };
+const iconLinks = [linkElDark, linkEl];
+const createdLinks = [];
 
 /* ==================== 导航图标桩 ====================
  * 官方 settings.section 的导航图标按 section id 硬编码，notice-center 回退成齿轮
@@ -143,7 +149,17 @@ const navButtons = [
 const navEl = { querySelectorAll: (selector) => (selector === "button" ? navButtons : []) };
 
 const fakeDocument = {
-  head: { querySelector: () => linkEl },
+  head: {
+    querySelector: () => iconLinks[0] ?? null,
+    querySelectorAll: () => [...iconLinks],
+    appendChild: (element) => {
+      createdLinks.push(element);
+      iconLinks.push(element);
+      return element;
+    }
+  },
+  /* 插件只在「页面一枚 icon 都没有」时走 createElement 自建。 */
+  createElement: (tagName) => ({ tagName, rel: "", type: "", href: "" }),
   /* 全项目只有导航图标这一处用 document.querySelector，其余选择器一律 null。 */
   querySelector: (selector) => (selector === '[role="dialog"] nav' ? navEl : null),
   querySelectorAll: () => [],
@@ -681,6 +697,8 @@ tick();
 sessionState = { byId: { "pl-done": row("pl-done", "跑完了", true, false) } };
 tick();
 check("只有完成 → 绿", linkEl.href.includes(GREEN_URI), linkEl.href.slice(0, 48));
+/* 回归：宿主两枚 icon 都得改 —— 只改第一枚的话，浅色系统渲染第二枚，状态灯永远看不见。 */
+check("两枚 icon（dark/light）都换上绿", linkEl.href.includes(GREEN_URI) && linkElDark.href.includes(GREEN_URI), JSON.stringify([linkElDark.href.slice(0, 40), linkEl.href.slice(0, 40)]));
 
 /* 12b 只有待处理 → 琥珀 */
 sessionState = { byId: { "pl-wait": row("pl-wait", "等我答复", false, false) } };
@@ -701,6 +719,25 @@ check("完成与待处理并存 → 琥珀优先（不被掩盖）", linkEl.href
 pendingMap = new Map();
 tick();
 check("待处理清掉后回落到绿", linkEl.href.includes(GREEN_URI), linkEl.href.slice(0, 48));
+
+/* 12e 清场 → 回到官方原样：两枚各还原各的原 href（不能把 dark 的原值写到 light 上） */
+sessionState = { byId: {} };
+tick();
+check("清场后两枚 icon 各自还原原样", linkEl.href.endsWith("/favicon.svg") && linkElDark.href.endsWith("/favicon-dark.svg"), JSON.stringify([linkElDark.href, linkEl.href]));
+
+/* 12f 页面一枚 icon 都没有 → 自建一枚再上色（静默什么都不改 = 又一种「一直默认色」） */
+const keptIcons = iconLinks.slice();
+iconLinks.length = 0;
+createdLinks.length = 0;
+sessionState = { byId: { "pl-noicon": row("pl-noicon", "跑完了", true, false) } };
+tick();
+check("一枚 icon 都没有时自建一枚并上色", createdLinks.length === 1 && createdLinks[0].href.includes(GREEN_URI), JSON.stringify({ created: createdLinks.length, href: createdLinks[0]?.href?.slice(0, 40) }));
+/* 收场：清掉自建的那枚、列表还原成原来的两枚，别影响后面的用例 */
+iconLinks.length = 0;
+iconLinks.push(...keptIcons);
+createdLinks.length = 0;
+sessionState = { byId: {} };
+tick();
 
 /* ==================== 13. 设置页渲染（记录型桩） ==================== */
 /* 让设置页组件真的执行一次并检查它产出的界面结构 —— 在此之前它从未被渲染过，
