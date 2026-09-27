@@ -218,6 +218,8 @@ check("bundle id = dsh-notice-center", record?.id === "dsh-notice-center", recor
 const jsxNodes = [];
 /** 第 13 节：布尔 state 的 setter 按调用顺序记下来，用来断言「整行点击折叠的是哪一组」。 */
 const expandSetters = [];
+/** 第 18 节：以 undefined 为初值的 useState（音量回显草稿）的 setter —— 断言「当帧先画草稿」。 */
+const valueSetters = [];
 const jsx = (type, props, key) => {
   const node = { type, props: props ?? {}, key };
   jsxNodes.push(node);
@@ -258,6 +260,7 @@ const requireMock = (name) => {
       const setter = (value) => setter.calls.push(value);
       setter.calls = [];
       if (typeof init === "boolean") expandSetters.push(setter);
+      if (init === void 0) valueSetters.push(setter); /* 音量回显草稿（唯一初值为 undefined 的 state） */
       return [typeof init === "boolean" ? true : init, setter];
     },
     useRef: () => {
@@ -900,6 +903,81 @@ const writesAfterDraw = writes.set;
 navIconObserverCallback?.();
 flushRaf();
 check("重复调度不再写属性（防 rAF 死循环）", writes.set === writesAfterDraw, `多写了 ${writes.set - writesAfterDraw} 次`);
+
+/* ==================== 17. 写入被宿主瞬时拒绝 → 自动重试 ====================
+   回归（2026-09-26 用户反馈「音量点击有时生效有时不生效」）：宿主
+   dsh-config-editor.edit 在条目正在 reload、fiber 不是 ACTIVE、文件锁被占时抛错，
+   revision 冲突则回 false —— 都是瞬时的，而 set/unset 是幂等标量赋值，重试即自愈。
+   三条约束一起钉：首次同步发起（不推迟调用点的即时反馈）、抛错与被拒都要重试、
+   同字段被新值取代时放弃旧重试（否则 200ms 后旧值会把新值盖回去）。 */
+check("重试用例拿到音量滑杆", slider !== void 0 && typeof slider.props.onChange === "function", String(slider));
+const realScopeSet = scope.set;
+
+/* a) 宿主抛错（例：Configuration plugin is no longer active）→ 重试后落盘 */
+let rejectCalls = 0;
+scope.set = (key, value) => {
+  rejectCalls += 1;
+  if (rejectCalls === 1) return Promise.reject(new Error("Configuration plugin is no longer active"));
+  return realScopeSet(key, value);
+};
+delete settingsValue.notifyVolume;
+slider.props.onChange({ target: { value: "55" } });
+check("首次写入同步发起（不等微任务）", rejectCalls === 1, String(rejectCalls));
+await new Promise((resolve) => setTimeout(resolve, 400));
+check("写入抛错后自动重试并落盘", settingsValue.notifyVolume === 0.55 && rejectCalls >= 2, JSON.stringify({ value: settingsValue.notifyVolume, calls: rejectCalls }));
+
+/* b) 宿主回 false（revision 冲突）→ 同样重试 */
+let conflictCalls = 0;
+scope.set = (key, value) => {
+  conflictCalls += 1;
+  if (conflictCalls === 1) return Promise.resolve(false);
+  return realScopeSet(key, value);
+};
+delete settingsValue.notifyVolume;
+slider.props.onChange({ target: { value: "30" } });
+await new Promise((resolve) => setTimeout(resolve, 400));
+check("写入被拒（false）后自动重试并落盘", settingsValue.notifyVolume === 0.3 && conflictCalls >= 2, JSON.stringify({ value: settingsValue.notifyVolume, calls: conflictCalls }));
+
+/* c) 失败的写入还在等重试，同字段又来了新值 → 放弃旧重试，不能把新值盖回去 */
+let staleCalls = 0;
+scope.set = (key, value) => {
+  staleCalls += 1;
+  if (value === 0.35) return Promise.resolve(false);
+  return realScopeSet(key, value);
+};
+slider.props.onChange({ target: { value: "35" } }); /* 必失败 → 排在 200ms 后的重试 */
+slider.props.onChange({ target: { value: "65" } }); /* 随后的新值 */
+await new Promise((resolve) => setTimeout(resolve, 900));
+check("同字段新值胜出（旧重试被丢弃）", settingsValue.notifyVolume === 0.65, String(settingsValue.notifyVolume));
+check("旧值 0.35 没有被重试写回", staleCalls === 2, String(staleCalls));
+scope.set = realScopeSet;
+
+/* ==================== 18. 拖动滑杆：手势内合并写 + 当帧回显草稿 ====================
+   2026-09-26 23:00 现场取证（.watch-patch.log 逐笔记录 profile 的 cordis.patch.yml）：
+   每笔 set 都要重写整份 patch 并热重载插件条目，实测约 1s/笔；而原生滑杆每挪一格就发
+   一次 input，一次拖动几十笔全排进写队列，回显被拖到好几秒之后，受控 value 又一直被旧
+   快照拽回去 —— 用户看到的就是「改音量没反应、等半天才变、还一直往回掉（每次固定 -5%）」。
+   这里钉住两条：手势内只落「首笔立即写 + 静默后补一笔」；回显当帧先出草稿，不等宿主往返。 */
+jsxNodes.length = 0;
+registeredSection({ scope, t: t13 });
+const slider18 = jsxNodes.find((node) => node.type === "input" && node.props.type === "range");
+const draftSetter = valueSetters[valueSetters.length - 1];
+check("拖动用例拿到音量滑杆与草稿 setter", slider18 !== void 0 && typeof draftSetter === "function", `slider=${slider18 !== void 0} setter=${typeof draftSetter}`);
+
+let volumeWrites = 0;
+const realSet18 = scope.set;
+scope.set = (key, value) => {
+  if (key === "notifyVolume") volumeWrites += 1;
+  return realSet18(key, value);
+};
+
+/* 一次连发：模拟拖动，5 个 input 事件挤在同一个手势里 */
+for (const v of ["20", "25", "30", "35", "40"]) slider18.props.onChange({ target: { value: v } });
+check("手势内首笔立即写（不是逐 input 写 5 笔）", volumeWrites === 1, `共写 ${volumeWrites} 笔`);
+check("拖动当帧写回显草稿（回显不等宿主往返）", draftSetter.calls.includes(0.4), JSON.stringify(draftSetter.calls));
+await new Promise((resolve) => setTimeout(resolve, 400));
+check("静默后只补最后一笔（5 连发最终落 2 笔）", volumeWrites === 2 && settingsValue.notifyVolume === 0.4, JSON.stringify({ writes: volumeWrites, value: settingsValue.notifyVolume }));
+scope.set = realSet18;
 
 console.log(failed === 0 ? "\n全部通过" : `\n有 ${failed} 项失败`);
 process.exit(failed === 0 ? 0 : 1);
