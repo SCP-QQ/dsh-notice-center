@@ -36,6 +36,7 @@
 - [本地开发](#本地开发)
 - [测试](#测试)
 - [发版](#发版)
+- [更新记录](./CHANGELOG.md)
 - [设计约束](#设计约束)
 
 ## 为什么需要它
@@ -340,6 +341,9 @@ npm run test:client # 只跑浏览器半
 3. 测试必须通过
 
 另外发布步骤**幂等**：该版本已在 registry 上就跳过，重复打 tag / 重跑工作流不会红。
+
+发版前先在本仓库 [`CHANGELOG.md`](./CHANGELOG.md) 补上这一版（用户可见改动 + 兼容性）再打 tag ——
+它是 npm 包页与 GitHub Release 上那份「更新说明」的来源。
 
 ### 一次性配置：npm Trusted Publishing (OIDC)
 

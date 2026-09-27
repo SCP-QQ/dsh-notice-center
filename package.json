@@ -31,7 +31,8 @@
     "assets",
     "LICENSE",
     "README.md",
-    "README.en.md"
+    "README.en.md",
+    "CHANGELOG.md"
   ],
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.4"

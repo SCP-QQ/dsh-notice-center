@@ -36,6 +36,7 @@
 - [Local development](#local-development)
 - [Tests](#tests)
 - [Releasing](#releasing)
+- [Changelog](./CHANGELOG.md)
 - [Design constraints](#design-constraints)
 
 ## Why you need it
@@ -341,6 +342,8 @@ The workflow has **three gates**; failing any one blocks the release:
 3. Tests must pass
 
 The publish step is also **idempotent**: if that version already exists on the registry it is skipped, so re-tagging or re-running never fails the build.
+
+Before tagging, add this release to [`CHANGELOG.md`](./CHANGELOG.md) (user-visible changes plus compatibility notes) — it is the source of the release notes shown on the npm page and the GitHub Release.
 
 ### One-time setup: npm Trusted Publishing (OIDC)
 
