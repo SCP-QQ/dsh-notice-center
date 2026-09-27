@@ -163,7 +163,23 @@ Remove the dependency and the `dsh.profile.bundles` entry, then restart — noth
 ## Getting started in three steps
 
 1. **Open the settings page** — Settings → **Notification center** (a sidebar entry)
-2. **Turn on system notifications** — flip the **System notifications** master switch; the browser asks for permission, choose *Allow*. If it was denied, the settings page tells you, and you must re-enable it in the browser's **site settings** (browsers do not ask twice)
+2. **Grant system notifications** — the master switch is **on by default**: after the page loads, your first click or key press makes the plugin ask the browser for notification permission once (browsers **refuse** requests without a user gesture, so the page cannot pop it on its own — it borrows your first interaction). Choose *Allow* and you also get a "Notifications enabled" confirmation. Frequency rules:
+
+   - **at most once per page load** (clicking more in the same session never re-prompts);
+   - choose *Allow* or *Block* → **never asked again** (the permission is settled);
+   - merely closing the prompt with **× / Esc** (neither choice) → not a decision, so the **next page load asks again** until you decide;
+   - to stop it entirely: turn the **System notifications** switch off, or choose *Block*.
+
+   Later, use the status chip right **below the switch** (the short state is always visible; hover it or focus it with the keyboard for the full explanation):
+
+   | State | Chip | What to do |
+   |---|---|---|
+   | **Not granted** (you dismissed the prompt) | "Not granted - Grant", clickable | Click it and the browser asks again |
+   | **Blocked** | warning icon + "Blocked" | Browsers do **not** ask twice (and a page may not open site settings): hover for the recovery path — click the icon at the left of the address bar → Notifications → Allow, or open `chrome://settings/content/notifications` |
+   | **Unsupported** | one small line | Usually a **secure context** problem (see *Install → Requirements*): use `http://127.0.0.1:3080` |
+   | Granted | hidden (the row stays clean) | — |
+
+   The switch itself always works (you can turn notifications off even while unauthorised — and turning it off stops the automatic request); change the permission in site settings and the chip follows immediately.
 3. **Tune as you like** — expand the two groups: change colours, pick sounds, set volume, toggle **Notify in the foreground** / **Auto hide**
 
 <img src="docs/images/settings-en.png" width="440" alt="Notification center settings page">
@@ -178,7 +194,7 @@ After that, whenever you switch away or minimise, a finished session or a pendin
 | | Finished | `green` | `#22C55E` | Finished status-light colour (official sidebar colour) |
 | | Pending | `amber` | `#F59E0B` | Pending status-light colour (official sidebar colour) |
 | | Default colour | `black` | unset | Unset = keep the stock `/favicon.svg` |
-| System notifications | Master switch | `notifyEnabled` | **off** | opt-in; turning it on asks for browser permission |
+| System notifications | Master switch | `notifyEnabled` | **on** | On by default; the first interaction asks for browser permission, and a status chip appears below the switch while it is missing |
 | | Auto hide | `notifyAutoHide` | on | Off = the notification stays until you dismiss it |
 | | Notify in the foreground | `notifyForeground` | off | On = also notify while you are looking at the page |
 | | Sound | `notifySound` | on | When on, the system sound is muted and the plugin sound plays |
@@ -195,6 +211,7 @@ The settings page also shows a one-line footer at the very top with the plugin n
 |---|---|
 | No "Notification center" entry in Settings | The plugin did not load. Make sure you **restarted Harness** after installing, then look for `settings namespace "notice-center" registered` in the Harness console |
 | A switch does nothing / a new setting has no effect | After changing the **host half** (`lib/index.mjs`) you must restart Harness — settings writes go through the host schema |
+| A permission prompt popped up on my very first click after installing | The master switch is on by default, so the plugin borrows your **first interaction** (click / key press) to ask once — browsers refuse permission requests without a user gesture. Choose *Block* if you do not want it, and use the status chip in the settings later |
 | No notifications at all | Three conditions are required: ① the master switch is on; ② browser permission is *Allow*; ③ the page is not in the foreground when the event fires (use **Notify in the foreground** to relax this) |
 | No notifications over a LAN IP | Non-secure context: the browser disables the Notification API, so system notifications are **entirely unavailable** (unrelated to *Notify in the foreground*). Use `127.0.0.1` / `localhost`; over a LAN only the tab status light works |
 | Nothing after closing the tab | Known limitation, see below |

@@ -83,6 +83,17 @@ class FakeNotification {
   close() {}
 }
 FakeNotification.permission = "granted";
+/** 第 23 节：requestPermission 的调用记录 + 「用户在授权窗上选了什么」。
+ *  真浏览器里这个请求必须由用户手势发起（否则根本不弹窗），这里能断言的正是**同步性**：
+ *  调用发生的时机是不是在 onChange 返回之前。 */
+FakeNotification.requests = [];
+FakeNotification.answer = "granted";
+FakeNotification.requestPermission = (callback) => {
+  FakeNotification.requests.push(FakeNotification.permission);
+  FakeNotification.permission = FakeNotification.answer;
+  if (typeof callback === "function") callback(FakeNotification.answer);
+  return Promise.resolve(FakeNotification.answer);
+};
 
 const linkEl = { href: "http://127.0.0.1:3080/favicon.svg" };
 /* 宿主 index.html 挂两枚 icon：dark / light 各一枚，靠 media="(prefers-color-scheme)" 区分，
@@ -148,6 +159,8 @@ const navButtons = [
 ];
 const navEl = { querySelectorAll: (selector) => (selector === "button" ? navButtons : []) };
 
+/** 假 document 的事件登记表：第 24 节要手动触发"用户的第一次交互"（pointerdown / keydown）。 */
+const documentListeners = new Map();
 const fakeDocument = {
   head: {
     querySelector: () => iconLinks[0] ?? null,
@@ -164,11 +177,24 @@ const fakeDocument = {
   querySelector: (selector) => (selector === '[role="dialog"] nav' ? navEl : null),
   querySelectorAll: () => [],
   documentElement: {},
-  addEventListener: () => {},
-  removeEventListener: () => {},
+  addEventListener: (type, fn) => {
+    const list = documentListeners.get(type) ?? [];
+    list.push(fn);
+    documentListeners.set(type, list);
+  },
+  removeEventListener: (type, fn) => {
+    const list = documentListeners.get(type);
+    if (list === void 0) return;
+    const index = list.indexOf(fn);
+    if (index >= 0) list.splice(index, 1);
+  },
   hasFocus: () => focused
 };
 Object.defineProperty(fakeDocument, "visibilityState", { get: () => visibility });
+/** 手动触发一次 document 上的事件（模拟用户交互 / 可见性变化）。 */
+const fireDocument = (type, event = {}) => {
+  for (const fn of [...(documentListeners.get(type) ?? [])]) fn(event);
+};
 
 globalThis.Notification = FakeNotification;
 
@@ -236,6 +262,11 @@ const jsxNodes = [];
 const expandSetters = [];
 /** 第 18 节：以 undefined 为初值的 useState（音量回显草稿）的 setter —— 断言「当帧先画草稿」。 */
 const valueSetters = [];
+/** 第 22 节：以对象为初值的 useState（每字段写入态 busy/failed）的 setter —— 断言官方
+ *  DeveloperToolsRow 那套「写在途禁用 + 失败行内报错」。全组件只有它一个对象初值 state。 */
+const flagSetters = [];
+/** 第 23 节：以字符串为初值的 useState（通知权限态 granted/denied/default）的 setter。 */
+const permissionSetters = [];
 const jsx = (type, props, key) => {
   const node = { type, props: props ?? {}, key };
   jsxNodes.push(node);
@@ -248,8 +279,11 @@ const jsx = (type, props, key) => {
  * 设置页在真宿主上是空的、测试却全绿。新增 primitive 引用前先在宿主包里确认导出。 */
 const primitivesExports = new Set([
   "Switch",
+  "Tooltip",
   "IconChevronDownOutlineRegular",
-  "IconRefreshOutlineRegular"
+  "IconRefreshOutlineRegular",
+  "IconQuestionOutlineRegular",
+  "IconWarningOutlineRegular"
 ]);
 const primitivesStub = new Proxy({}, {
   get: (_target, name) => {
@@ -263,8 +297,82 @@ const primitivesStub = new Proxy({}, {
 });
 /** 设置页 hook 调用计数（第 15 节：hook 数量不得随 status 变化，否则 React 抛错白屏）。 */
 const hookCalls = { count: 0 };
+/** 假 BroadcastChannel：默认每个实例一条独立总线（多个测试实例互不串台），
+ *  需要模拟「另一个标签页」时往实例的 bus 里 post 消息即可（第 20 节）。 */
+const fakeChannels = [];
+const makeBus = () => {
+  const listeners = new Set();
+  return {
+    post(message) {
+      for (const fn of [...listeners]) fn({ data: message });
+    },
+    add(fn) {
+      listeners.add(fn);
+    },
+    remove(fn) {
+      listeners.delete(fn);
+    }
+  };
+};
+class FakeBroadcastChannel {
+  constructor(name) {
+    this.name = name;
+    this.bus = makeBus();
+    this.sent = [];
+    this.handler = void 0;
+    fakeChannels.push(this);
+  }
+  postMessage(message) {
+    this.sent.push(message);
+    this.bus.post(message);
+  }
+  addEventListener(type, fn) {
+    if (type === "message") {
+      this.handler = fn;
+      this.bus.add(fn);
+    }
+  }
+  removeEventListener(_type, fn) {
+    this.bus.remove(fn);
+  }
+  close() {
+    if (this.handler !== void 0) this.bus.remove(this.handler);
+  }
+}
+globalThis.BroadcastChannel = FakeBroadcastChannel;
+/** 假 localStorage：只给假 store 用，让「刷新后绿灯还在」可断言。 */
+const fakeStorage = new Map();
+/** 假 store：与官方 createSnapshotStore 同形（getSnapshot / set / update / subscribe），
+ *  persist 名字即存储键 —— 官方注释说明 persist key 就是存储身份，这里照此实现。 */
+const clientStoreStub = {
+  createSnapshotStore: (init, opts) => {
+    const key = opts?.persist?.name;
+    const listeners = new Set();
+    let state = key !== void 0 && fakeStorage.has(key) ? fakeStorage.get(key) : init;
+    return {
+      getSnapshot: () => state,
+      set: (next) => {
+        state = next;
+        if (key !== void 0) fakeStorage.set(key, next);
+        for (const fn of [...listeners]) fn();
+      },
+      update: (mutator) => {
+        const draft = JSON.parse(JSON.stringify(state));
+        mutator(draft);
+        state = draft;
+        if (key !== void 0) fakeStorage.set(key, draft);
+        for (const fn of [...listeners]) fn();
+      },
+      subscribe: (fn) => {
+        listeners.add(fn);
+        return () => listeners.delete(fn);
+      }
+    };
+  }
+};
 const requireMock = (name) => {
   if (name === "@deepseek-ai/dsh-client-ui-primitives") return primitivesStub;
+  if (name === "@deepseek-ai/dsh-client-store") return clientStoreStub;
   if (name === "react") return {
     /* 必须返回真实快照：否则设置页读到的 value 是 {}，所有行都落默认值，断言就没有意义。 */
     useSyncExternalStore: (_subscribe, getSnapshot) => {
@@ -276,7 +384,9 @@ const requireMock = (name) => {
       const setter = (value) => setter.calls.push(value);
       setter.calls = [];
       if (typeof init === "boolean") expandSetters.push(setter);
-      if (init === void 0) valueSetters.push(setter); /* 音量回显草稿（唯一初值为 undefined 的 state） */
+      if (init === void 0) valueSetters.push(setter); /* 回显草稿（全配置共用，唯一初值为 undefined 的 state） */
+      if (init !== null && typeof init === "object") flagSetters.push(setter); /* 写入态 busy/failed */
+      if (typeof init === "string") permissionSetters.push(setter); /* 通知权限态 */
       return [typeof init === "boolean" ? true : init, setter];
     },
     useRef: () => {
@@ -820,6 +930,9 @@ const clearSetterCalls = () => expandSetters.forEach((setter) => { setter.calls.
 /* setter 收到的是 updater 函数（调用点写的是 setColorsExpanded((current) => !current)），
    所以断言把它作用在当前值 true 上，验的是「语义上确实折成 false」而不是原始实参。 */
 const appliedCalls = (setter) => setter.calls.map((value) => (typeof value === "function" ? value(true) : value));
+/** 把 setter.calls 按 React 语义依次归约（函数式更新要吃上一轮 state）—— 回显草稿是 {字段: 值}，
+ *  直接看 calls 只会看到一串 updater 函数。 */
+const reduce = (setter, initial = void 0) => setter.calls.reduce((state, call) => (typeof call === "function" ? call(state) : call), initial);
 clearSetterCalls();
 groupRows[0]?.props.onClick();
 check("点「鲸鱼状态灯」行只折叠这一组", expandSetters[0]?.calls.length === 1 && appliedCalls(expandSetters[0])[0] === false && expandSetters[1]?.calls.length === 0, JSON.stringify(expandSetters.map(appliedCalls)));
@@ -1011,7 +1124,7 @@ scope.set = (key, value) => {
 /* 一次连发：模拟拖动，5 个 input 事件挤在同一个手势里 */
 for (const v of ["20", "25", "30", "35", "40"]) slider18.props.onChange({ target: { value: v } });
 check("手势内首笔立即写（不是逐 input 写 5 笔）", volumeWrites === 1, `共写 ${volumeWrites} 笔`);
-check("拖动当帧写回显草稿（回显不等宿主往返）", draftSetter.calls.includes(0.4), JSON.stringify(draftSetter.calls));
+check("拖动当帧写回显草稿（回显不等宿主往返）", reduce(draftSetter)?.notifyVolume === 0.4, JSON.stringify(reduce(draftSetter)));
 await new Promise((resolve) => setTimeout(resolve, 400));
 check("静默后只补最后一笔（5 连发最终落 2 笔）", volumeWrites === 2 && settingsValue.notifyVolume === 0.4, JSON.stringify({ writes: volumeWrites, value: settingsValue.notifyVolume }));
 scope.set = realSet18;
@@ -1020,15 +1133,15 @@ scope.set = realSet18;
    回归（2026-09-27 用户反馈「点完复位按钮，要等一会儿预览的鲸鱼才变色」）：预览读的是
    快照，而一次写 = 重写整份 profile patch + Loader 热重载条目（约 1s），干等回显预览就
    先僵在旧色上。修法与音量滑杆同源：当帧先画草稿，写宿主按手势合并（取色器拖动会连发
-   input）。hook 顺序：colorDraft 先声明、volumeDraft 后声明 → 倒数第二个是颜色草稿。 */
+   input）。回显草稿现在是全配置共用的一张 {字段: 值} 表（一个 useState(void 0)），所以
+   每次渲染只 push 一个 setter —— 它就是倒数第一个。 */
 jsxNodes.length = 0;
 registeredSection({ scope, t: t13 });
-const colorDraftSetter = valueSetters[valueSetters.length - 2];
-const reduce = (setter, initial = void 0) => setter.calls.reduce((state, call) => (typeof call === "function" ? call(state) : call), initial);
+const colorDraftSetter = valueSetters[valueSetters.length - 1];
 const colorInputs19 = jsxNodes.filter((node) => node.type === "input" && node.props.type === "color");
 const resetButtons19 = jsxNodes.filter((node) => node.type === "button" && node.props["aria-label"] === t13("restore") && typeof node.props.onClick === "function");
 check("颜色用例拿到 3 个取色器与 3 个复位按钮", colorInputs19.length === 3 && resetButtons19.length === 3, JSON.stringify({ pickers: colorInputs19.length, resets: resetButtons19.length }));
-check("颜色草稿 setter 是倒数第二个 useState(void 0)", typeof colorDraftSetter === "function", String(typeof colorDraftSetter));
+check("回显草稿是本次渲染的最后一个 useState(void 0)", typeof colorDraftSetter === "function", String(typeof colorDraftSetter));
 
 /* 19a 取色当帧写草稿（预览鲸鱼立刻换色，不等宿主往返） */
 colorDraftSetter.calls.length = 0;
@@ -1056,6 +1169,294 @@ check("复位当帧把预览改成默认色（不等 unset 回显）", reduce(co
 check("复位立即落盘（unset 同步执行）", settingsValue.green === void 0, String(settingsValue.green));
 await new Promise((resolve) => setTimeout(resolve, 300));
 check("落定后草稿撤掉、交还快照", reduce(colorDraftSetter)?.green === void 0, JSON.stringify(reduce(colorDraftSetter)));
+
+/* ==================== 20. 跨标签页选主 + 未读持久化 ====================
+   回归三处真缺陷（2026-09-27 取证）：① 两个标签页都不在前台时，同一次完成弹两条通知、
+   响两次铃；② 「前台」判定只看本标签页 —— B 标签正在看时，隐藏的 A 标签仍以为没人在看；
+   ③ 未读绿灯只存内存，刷新即丢（README 已知限制）。
+   这里用假 BroadcastChannel 充当「另一个标签页」（默认实例间总线隔离，见 FakeBroadcastChannel），
+   用假 store + 假 localStorage 模拟刷新回放。 */
+const ownChannel = fakeChannels.at(-1);
+/* 前置：本节断言的是「选主 + 持久化」，通知/状态灯的开关先前 19 节动过 —— 显式摆到能弹、能绿，
+   免得失败原因落在「开关没开」而不是本节逻辑上。 */
+settingsValue.notifyEnabled = true;
+settingsValue.colorsEnabled = true;
+FakeNotification.permission = "granted";
+check("20 节前置：通知开关与权限就绪", settingsValue.notifyEnabled === true && FakeNotification.permission === "granted", JSON.stringify({ enabled: settingsValue.notifyEnabled, permission: FakeNotification.permission }));
+check("启动即广播心跳与问路（state?）", ownChannel?.sent.some((m) => m.t === "heartbeat") === true && ownChannel?.sent.some((m) => m.t === "state?") === true, JSON.stringify(ownChannel?.sent));
+
+/* 20a 邻居 id 更小（"0" 必然小于任何随机 id）→ 本标签页非主：完成事件不许弹。 */
+reset();
+visibility = "hidden";
+focused = false;
+ownChannel?.bus.post({ t: "heartbeat", id: "0", visible: false, focused: false });
+runToDone("c-20a", "跨标签页用例 A");
+await settle();
+check("非主标签页不弹通知（副作用单一写者）", notifications.length === 0, `发了 ${notifications.length} 条`);
+
+/* 20b 邻居告别 → 本标签页接管：同一个完成事件这次要弹，而且未读集合要落盘。 */
+ownChannel?.bus.post({ t: "bye", id: "0" });
+reset();
+runToDone("c-20b", "跨标签页用例 B");
+await settle();
+check("接管后主标签页照常弹通知", notifications.length === 1, `发了 ${notifications.length} 条`);
+const persistedUnread = fakeStorage.get("dsh-notice-center:v1:unread");
+check("未读集合按官方 store 的 persist 键落盘", (persistedUnread?.items ?? []).some((entry) => entry[0] === "c-20b"), JSON.stringify(persistedUnread));
+
+/* 20c 聚合前台：本标签页隐藏，但邻居说它正在看 → 不该弹（旧代码只看本标签页，会弹）。 */
+reset();
+visibility = "hidden";
+focused = false;
+ownChannel?.bus.post({ t: "heartbeat", id: "0", visible: true, focused: true });
+runToDone("c-20c", "跨标签页用例 C");
+await settle();
+check("别的标签页在前台时不弹（聚合前台判定）", notifications.length === 0, `发了 ${notifications.length} 条`);
+ownChannel?.bus.post({ t: "bye", id: "0" });
+
+/* 20d 刷新回放：新实例启动即读到落盘的未读 → favicon 立刻是绿。
+   先把会话表清成「只有一个 completed=false 的会话」，否则绿是官方 completed 给的、
+   证明不了持久化。 */
+sessionState = { ...sessionState, byId: { "c-20b": row("c-20b", "跨标签页用例 B", false, false) } };
+visibility = "visible";
+focused = true;
+client.apply(ctx);
+flushRaf();
+check("刷新后绿灯还在（未读状态不再随刷新丢失）", linkEl.href.includes(GREEN_URI), linkEl.href.slice(0, 48));
+
+/* 20e 收到邻居的状态广播必须**立刻重画**。
+   用户实测回归（2026-09-27）：A 标签回到前台 → clearAll 广播 → B 采纳了空集合却一直是绿灯，
+   因为状态变了却没人重画 favicon，只有刷新 / 切换会话再切回（下一次 sync）才恢复。 */
+const channel20e = fakeChannels.at(-1);
+reset();
+visibility = "hidden";
+focused = false;
+sessionState = { ...sessionState, byId: { "c-20e": row("c-20e", "跨标签页用例 E", false, false) } };
+channel20e?.bus.post({ t: "state", id: "0", items: [["c-20e", 0]] });
+check("收到邻居的未读集合 → 立刻变绿", linkEl.href.includes(GREEN_URI), linkEl.href.slice(0, 48));
+channel20e?.bus.post({ t: "state", id: "0", items: [] });
+check("收到邻居清空 → 立刻恢复默认色（不再等下一次 sync）", !linkEl.href.includes(GREEN_URI), linkEl.href.slice(0, 48));
+
+/* ==================== 21. 开关 / 音效下拉：当帧回显（全配置共用一张草稿表） ====================
+   回归（2026-09-27 用户要求「检查其他配置项也存在修改需要等会儿才生效的问题，整体过一遍」）：
+   官方 Switch 原语是 fully controlled（只认 props.checked，本组件不改 props 它就不动）、音效
+   下拉的选中项与 trigger 文案只认 props.value —— 只读快照的控件在回显到达前一直显示旧值，
+   和滑杆/颜色一样有「点了要等一会儿才生效」。修法统一：所有字段共用一张 {字段: 值} 草稿表，
+   写入当帧先画，快照追平后交还；写入侧仍是每字段一条手势管道（首笔立即 + 静默补笔）。 */
+jsxNodes.length = 0;
+registeredSection({ scope, t: t13 });
+const draftSetter21 = valueSetters[valueSetters.length - 1];
+const switches21 = jsxNodes.filter((node) => typeof node.type === "function" && node.type.__primitive === "Switch");
+const switchByLabel21 = (label) => switches21.find((node) => node.props.label === label);
+check("21 节拿到 5 个开关", switches21.length === 5, String(switches21.length));
+
+/* 21a 开关：点完当帧就是新状态（断言草稿，而不是等回显） */
+draftSetter21.calls.length = 0;
+switchByLabel21("自动隐藏")?.props.onChange(true);
+check("开关当帧写回显草稿", reduce(draftSetter21)?.notifyAutoHide === true, JSON.stringify(reduce(draftSetter21)));
+check("开关同时落盘", settingsValue.notifyAutoHide === true, String(settingsValue.notifyAutoHide));
+
+/* 21b 音效下拉：选中项当帧跟随（trigger 文案与 aria-selected 都读这个值） */
+draftSetter21.calls.length = 0;
+const pickers21 = jsxNodes.filter((node) => node.props !== void 0 && "groups" in node.props && typeof node.props.onChange === "function");
+check("21 节拿到 2 个音效下拉", pickers21.length === 2, String(pickers21.length));
+pickers21.find((node) => node.props.kind === "done")?.props.onChange("yup-09");
+check("音效下拉当帧写回显草稿", reduce(draftSetter21)?.notifyDoneSound === "yup-09", JSON.stringify(reduce(draftSetter21)));
+check("音效下拉同时落盘", settingsValue.notifyDoneSound === "yup-09", String(settingsValue.notifyDoneSound));
+
+/* ==================== 22. 连点开关后「自己关掉」：照官方「代码工作工具」开关的实现 ====================
+   回归（2026-09-27 用户反馈「连点几次开关后，最后落在开启上，没过一会儿自动关闭」）。
+
+   官方同一个坑是这么写的（@deepseek-ai/dsh-client-ui-settings-general/lib/client.js 的
+   DeveloperToolsRow，即「通用设置 → 代码工作工具」那一行）：
+     const enabled = useDeveloperTools((value) => value);          // 受控值
+     checked={enabled} disabled={busy}                             // 一笔写在途就禁用控件
+     onChange: (next) => { setFailed(false); setBusy(true);
+       setEnabled(next).catch(() => setFailed(true)).finally(() => setBusy(false)); }
+     failed && <div role="alert">保存失败，请重试</div>              // 失败行内报错
+   官方写入同样走 configEditor.edit（重写 profile patch + Loader 热重载，约 1s/笔），快不起来 ——
+   它靠的是 **写在途 disabled**：一次交互只产生一笔写，连点被掐掉，于是不存在「写完又自己变
+   回去」的竞态。本插件照搬这套结构（额外保留当帧草稿，给「点了要等一会儿才生效」补即时反馈）：
+     - 写在途 → writeFlags[key].busy = true → 开关 disabled；
+     - 落盘   → busy=false；被拒 → failed=true → 行内 role="alert" 报「保存失败，请重试」，
+                画面回滚交还宿主真值（**不后台重推**：后台重推会和用户下一次点击抢着写）；
+     - 最后一次操作提到模块级 lastIntents，只作显示兜底（组件重建后不闪回更早的旧值）。 */
+jsxNodes.length = 0;
+settingsValue.notifyAutoHide = false; /* 宿主停在更早的「关」上 */
+registeredSection({ scope, t: t13 });
+const switch22 = jsxNodes.find((node) => typeof node.type === "function" && node.type.__primitive === "Switch" && node.props.label === "自动隐藏");
+check("设置区重建后画面仍认最后一次操作（不闪回宿主旧值）", switch22?.props.checked === true, String(switch22?.props.checked));
+check("22 节拿到写入态 setter（对象初值 state）", flagSetters.length > 0, String(flagSetters.length));
+
+/* 22a 写在途 busy（＝ disabled，连点被掐掉）；三次都被拒 → failed + 回滚，且不后台重推 */
+const draftSetter22 = valueSetters[valueSetters.length - 1];
+const flagSetter22 = flagSetters[flagSetters.length - 1];
+let refused22 = 0;
+const realSet22 = scope.set;
+scope.set = (key, val) => {
+  if (key === "notifyAutoHide" && refused22 < 3) {
+    refused22 += 1;
+    return Promise.resolve(false);
+  }
+  return realSet22(key, val);
+};
+draftSetter22.calls.length = 0;
+flagSetter22.calls.length = 0;
+const answer22 = switch22?.props.onChange(true);
+check("点下去当帧置 busy（＝开关 disabled，连点只会产生一笔写）", reduce(flagSetter22)?.notifyAutoHide?.busy === true, JSON.stringify(reduce(flagSetter22)));
+check("同帧先画草稿（即时反馈不丢）", reduce(draftSetter22)?.notifyAutoHide === true, JSON.stringify(reduce(draftSetter22)));
+await new Promise((resolve) => setTimeout(resolve, 1000)); /* submit 三次尝试 0/200/600ms */
+check("前三笔确实都被拒", refused22 === 3, String(refused22));
+check("被拒 → onChange 返回 false（行上据此报错）", (await answer22) === false, String(await answer22));
+check("失败态落定：busy=false 且 failed=true（行内报「保存失败，请重试」）", reduce(flagSetter22)?.notifyAutoHide?.busy === false && reduce(flagSetter22)?.notifyAutoHide?.failed === true, JSON.stringify(reduce(flagSetter22)));
+check("失败 → 回滚画面交还宿主真值，不后台重推", reduce(draftSetter22)?.notifyAutoHide === void 0 && settingsValue.notifyAutoHide === false, JSON.stringify({
+  draft: reduce(draftSetter22),
+  host: settingsValue.notifyAutoHide
+}));
+await new Promise((resolve) => setTimeout(resolve, 900)); /* 旧实现会在 400ms 后补写一笔 */
+check("等过一个补写周期也没有后台补写（写次数停在 3）", refused22 === 3 && settingsValue.notifyAutoHide === false, JSON.stringify({
+  refused: refused22,
+  host: settingsValue.notifyAutoHide
+}));
+scope.set = realSet22;
+
+/* 22b 写成功：failed 清掉、宿主拿到新值、草稿交给快照 */
+jsxNodes.length = 0;
+registeredSection({ scope, t: t13 });
+const switch22b = jsxNodes.find((node) => typeof node.type === "function" && node.type.__primitive === "Switch" && node.props.label === "自动隐藏");
+const flagSetter22b = flagSetters[flagSetters.length - 1];
+flagSetter22b.calls.length = 0;
+check("写成功 → onChange 返回 true", (await switch22b?.props.onChange(true)) === true, "n/a");
+check("写成功：busy/failed 都归位", reduce(flagSetter22b)?.notifyAutoHide?.busy === false && reduce(flagSetter22b)?.notifyAutoHide?.failed === false, JSON.stringify(reduce(flagSetter22b)));
+check("写成功：宿主已带上新值", settingsValue.notifyAutoHide === true, String(settingsValue.notifyAutoHide));
+
+/* ==================== 23. 开启通知时的浏览器授权窗（手势安全 + 四种权限态） ====================
+   调研结论（2026-09-27，出处见 lib/client.cjs 里 requestNotificationPermission 的注释）：
+   MDN 明确「浏览器会直接拒绝不在用户手势里发起的通知权限请求」（Firefox 72 起、Safari 更早），
+   另外要求 secure context（https 或 localhost/127.0.0.1）、不能跨域 iframe；权限只有
+   granted / denied / default 三态，其中 denied 之后浏览器**不再弹窗**，网页也打不开站点设置页。
+   所以落地方式：
+     - 打开开关的那一刻，在**同一个同步调用栈**里调 Notification.requestPermission()；
+     - default（从没问过，或用户把授权窗直接关掉了）→ 行内提示 + 「授权」按钮；
+     - denied → 给出用户自己恢复的具体路径；granted → 什么都不提示。
+   本节盯住最容易悄悄回归的一点：**权限请求必须在 onChange 返回之前发出** —— 中间一旦插了
+   await，浏览器就不弹窗了，而桌面上手测的表现只是「点开关没反应」，极难查。 */
+jsxNodes.length = 0;
+settingsValue.notifyEnabled = false;
+FakeNotification.permission = "default";
+FakeNotification.answer = "granted";
+FakeNotification.requests = [];
+registeredSection({ scope, t: t13 });
+const switch23 = jsxNodes.find((node) => typeof node.type === "function" && node.type.__primitive === "Switch" && node.props.label === t13("groupNotify"));
+const permissionSetter23 = permissionSetters[permissionSetters.length - 1];
+const draftSetter23 = valueSetters[valueSetters.length - 1];
+permissionSetter23.calls.length = 0;
+draftSetter23.calls.length = 0;
+const answer23 = switch23?.props.onChange(true);
+const notificationsBefore23 = notifications.length;
+check("23 default + 打开 → 权限请求在 onChange 返回前就发出（手势内同步调用，浏览器才肯弹窗）", FakeNotification.requests.length === 1, `requests=${FakeNotification.requests.length}`);
+check("23 同帧仍把开关写下去（要权限不是漏写配置的借口）", settingsValue.notifyEnabled === true, String(settingsValue.notifyEnabled));
+check("23 同帧也画了回显草稿", reduce(draftSetter23)?.notifyEnabled === true, JSON.stringify(reduce(draftSetter23)));
+await answer23;
+check("23 用户点「允许」→ 权限态变 granted（chip 随之消失）", reduce(permissionSetter23) === "granted", String(reduce(permissionSetter23)));
+check("23 授权成功当场弹一条确认通知（用户不用等下一次任务跑完才知道生效）", notifications.length === notificationsBefore23 + 1 && notifications[notifications.length - 1]?.title === t13("notifyPermissionTitle"), String(notifications[notifications.length - 1]?.title));
+
+/* 23b 用户在授权窗上点了 × / Esc（浏览器返回 default）：仍是未决 —— 不能静默 */
+FakeNotification.requests = [];
+FakeNotification.answer = "default";
+FakeNotification.permission = "default";
+jsxNodes.length = 0;
+settingsValue.notifyEnabled = true;
+registeredSection({ scope, t: t13 });
+/* 方案一（2026-09-27 评审）：chip 挂在「系统通知」开关正下方 —— 短状态常驻、长解释进官方 Tooltip。 */
+const chipTooltip23 = (label) => jsxNodes.find((node) => typeof node.type === "function" && node.type.__primitive === "Tooltip" && node.props?.label === label);
+const chipButton23 = () => jsxNodes.find((node) => node.type === "button" && Array.isArray(node.props?.children) && node.props.children.some((child) => child?.props?.children === t13("permissionPendingChip")));
+const notifySwitch23 = () => jsxNodes.find((node) => typeof node.type === "function" && node.type.__primitive === "Switch" && node.props.label === t13("groupNotify"));
+check("23b 未决 → chip 常驻显示「未授权 · 授权」（不悬停也看得懂）", jsxNodes.some((node) => node.props?.children === t13("permissionPendingChip")), t13("permissionPendingChip"));
+check("23b 未决 → 长解释在官方 Tooltip 里（hover + focus 都触发）", chipTooltip23(t13("permissionPendingHint")) !== void 0, t13("permissionPendingHint"));
+check("23b 未决 → Tooltip 包着的正是那个可点按钮（问号图标 + 文案）", chipTooltip23(t13("permissionPendingHint"))?.props?.children === chipButton23() && chipButton23() !== void 0, "anchor=button");
+check("23b chip 挂在开关正下方（开关仍在行里，没有被 chip 取代）", notifySwitch23() !== void 0, "switch-still-there");
+check("23b 只是显示 chip 不会自己去请求（必须用户点）", FakeNotification.requests.length === 0, `requests=${FakeNotification.requests.length}`);
+const permissionSetter23b = permissionSetters[permissionSetters.length - 1];
+permissionSetter23b.calls.length = 0;
+const askAnswer23 = chipButton23()?.props.onClick();
+check("23b 点 chip → 当场（同步）再发一次请求", FakeNotification.requests.length === 1, `requests=${FakeNotification.requests.length}`);
+await askAnswer23;
+check("23b 用户又关掉授权窗 → 权限态仍是未决，chip 不消失", reduce(permissionSetter23b) === "default", String(reduce(permissionSetter23b)));
+
+/* 23c 已被拒绝：浏览器不会再弹窗 —— 页面不许再调 requestPermission，chip 只讲恢复路径 */
+FakeNotification.requests = [];
+FakeNotification.permission = "denied";
+jsxNodes.length = 0;
+settingsValue.notifyEnabled = true;
+registeredSection({ scope, t: t13 });
+const deniedTooltip23 = chipTooltip23(t13("permissionDeniedHint"));
+check("23c 被拒 → chip 显示叹号 + 「已被拒绝」", jsxNodes.some((node) => node.props?.children === t13("permissionDeniedChip")) && jsxNodes.some((node) => typeof node.type === "function" && node.type.__primitive === "IconWarningOutlineRegular"), t13("permissionDeniedChip"));
+check("23c 被拒 → 恢复路径在 Tooltip 里（地址栏图标 / chrome://settings/content/notifications）", deniedTooltip23 !== void 0, t13("permissionDeniedHint"));
+check("23c 被拒 → chip 是键盘可聚焦的锚点（Tooltip 的 focus 触发才有意义）", deniedTooltip23?.props?.children?.props?.tabIndex === 0, String(deniedTooltip23?.props?.children?.props?.tabIndex));
+check("23c 被拒 → 不再显示可点的「授权」（点了也弹不出来）", chipButton23() === void 0, "no-grant-chip");
+check("23c 被拒 → 开关仍在，用户随时能把通知关掉（方案二做不到的那条）", notifySwitch23() !== void 0, "switch-still-there");
+notifySwitch23()?.props.onChange(true);
+check("23c 被拒后点开关 → 不再调 requestPermission（调了也不会弹，只会白等）", FakeNotification.requests.length === 0, `requests=${FakeNotification.requests.length}`);
+
+/* 23d 已授权：不请求、也没有 chip（行保持干净） */
+FakeNotification.requests = [];
+FakeNotification.permission = "granted";
+jsxNodes.length = 0;
+settingsValue.notifyEnabled = true;
+registeredSection({ scope, t: t13 });
+notifySwitch23()?.props.onChange(true);
+check("23d 已授权 → 不请求、也没有任何权限 chip", FakeNotification.requests.length === 0 && jsxNodes.every((node) => typeof node.type !== "function" || node.type.__primitive !== "Tooltip") && jsxNodes.every((node) => node.props?.children !== t13("permissionPendingChip")), `requests=${FakeNotification.requests.length}`);
+
+/* 23e 非安全上下文（例如用局域网 IP 打开）：Notification 根本不存在 → 提示不支持，且不请求 */
+const realNotification23 = globalThis.Notification;
+delete globalThis.Notification;
+FakeNotification.requests = [];
+jsxNodes.length = 0;
+settingsValue.notifyEnabled = true;
+registeredSection({ scope, t: t13 });
+const unsupportedSwitch23 = jsxNodes.find((node) => typeof node.type === "function" && node.type.__primitive === "Switch" && node.props.label === t13("groupNotify"));
+unsupportedSwitch23?.props.onChange(true);
+check("23e 不支持 → 提示「当前浏览器不支持系统通知」，且不发请求", jsxNodes.some((node) => node.props?.children === t13("permissionUnsupported")) && FakeNotification.requests.length === 0, `requests=${FakeNotification.requests.length}`);
+globalThis.Notification = realNotification23;
+
+/* ==================== 24. 首次安装：默认开启 + 自动请求授权（借第一次交互） ====================
+   需求（2026-09-27）：系统通知配置项**默认开启**，装完插件后**自动**请求通知授权。
+   硬约束：浏览器不允许没有用户手势的权限请求（MDN：Firefox 72 起、Safari 更早直接拒绝无手势
+   请求），页面自己弹不出来 —— 所以"自动"只能落到：装完第一次打开页面 → 挂一次性监听 →
+   用户第一次交互（点一下 / 按一下键）的那个手势里同步请求；只做一次并落盘标记，
+   之后想补授权去设置页点状态 chip。 */
+const emptyScope24 = Object.assign({}, scope, {
+  getSnapshot: () => ({ status: "ready", value: {}, writable: true, revision: 1 })
+});
+jsxNodes.length = 0;
+registeredSection({ scope: emptyScope24, t: t13 });
+const defaultSwitch24 = jsxNodes.find((node) => typeof node.type === "function" && node.type.__primitive === "Switch" && node.props.label === t13("groupNotify"));
+check("24 未配置时「系统通知」默认就是开着的", defaultSwitch24?.props.checked === true, String(defaultSwitch24?.props.checked));
+
+/* 24a 回归（用户实测反馈）：权限**已经授权**时交互，什么都不该发生，更不能写任何持久标记。 */
+FakeNotification.requests = [];
+FakeNotification.answer = "granted";
+FakeNotification.permission = "granted";
+check("24a apply 时已挂上首次交互监听（还没交互就绝不请求）", FakeNotification.requests.length === 0, `requests=${FakeNotification.requests.length}`);
+fireDocument("pointerdown");
+check("24a 权限已授权时交互 → 不请求", FakeNotification.requests.length === 0, `requests=${FakeNotification.requests.length}`);
+
+/* 24b 用户把权限重置回「询问」→ 下一次交互就该自动请求（不用刷新、也不用清任何标记） */
+FakeNotification.permission = "default";
+FakeNotification.requests = [];
+fireDocument("pointerdown");
+check("24b 权限回到「询问」后的首次交互自动请求授权（浏览器只认手势，这是能做到的最自动形态）", FakeNotification.requests.length === 1, `requests=${FakeNotification.requests.length}`);
+
+/* 24c 同一次会话里问过就不再问（用户在授权窗上点 × 也不会被连环弹） */
+FakeNotification.requests = [];
+fireDocument("pointerdown");
+fireDocument("keydown");
+check("24c 本次会话已经问过 → 再交互不重复弹窗", FakeNotification.requests.length === 0, `requests=${FakeNotification.requests.length}`);
+
+/* 24d 回归（用户实测反馈第二轮）：**不落任何"已问过"标记** —— 用户在授权窗上既没允许也没阻止
+   （点了 × / Esc）时权限仍是 default，下次刷新页面必须还能自动问一次；
+   上一版把标记落了盘，于是"点了 × 再刷新就永远不问了"。 */
+check("24d 全程不落盘任何「已问过」标记（没做选择就等于还能再问）", fakeStorage.get("dsh-notice-center:v1:permission-asked") === void 0, JSON.stringify(fakeStorage.get("dsh-notice-center:v1:permission-asked")));
 
 console.log(failed === 0 ? "\n全部通过" : `\n有 ${failed} 项失败`);
 process.exit(failed === 0 ? 0 : 1);
