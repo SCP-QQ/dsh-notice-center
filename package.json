@@ -1,6 +1,6 @@
 {
   "name": "dsh-notice-center",
-  "version": "1.4.0",
+  "version": "1.4.2",
   "engines": {
     "dsh": ">=0.1.7-rc.2 <0.2.0-0"
   },
