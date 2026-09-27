@@ -1016,5 +1016,46 @@ await new Promise((resolve) => setTimeout(resolve, 400));
 check("静默后只补最后一笔（5 连发最终落 2 笔）", volumeWrites === 2 && settingsValue.notifyVolume === 0.4, JSON.stringify({ writes: volumeWrites, value: settingsValue.notifyVolume }));
 scope.set = realSet18;
 
+/* ==================== 19. 颜色行：当帧回显 + 手势合并写 ====================
+   回归（2026-09-27 用户反馈「点完复位按钮，要等一会儿预览的鲸鱼才变色」）：预览读的是
+   快照，而一次写 = 重写整份 profile patch + Loader 热重载条目（约 1s），干等回显预览就
+   先僵在旧色上。修法与音量滑杆同源：当帧先画草稿，写宿主按手势合并（取色器拖动会连发
+   input）。hook 顺序：colorDraft 先声明、volumeDraft 后声明 → 倒数第二个是颜色草稿。 */
+jsxNodes.length = 0;
+registeredSection({ scope, t: t13 });
+const colorDraftSetter = valueSetters[valueSetters.length - 2];
+const reduce = (setter, initial = void 0) => setter.calls.reduce((state, call) => (typeof call === "function" ? call(state) : call), initial);
+const colorInputs19 = jsxNodes.filter((node) => node.type === "input" && node.props.type === "color");
+const resetButtons19 = jsxNodes.filter((node) => node.type === "button" && node.props["aria-label"] === t13("restore") && typeof node.props.onClick === "function");
+check("颜色用例拿到 3 个取色器与 3 个复位按钮", colorInputs19.length === 3 && resetButtons19.length === 3, JSON.stringify({ pickers: colorInputs19.length, resets: resetButtons19.length }));
+check("颜色草稿 setter 是倒数第二个 useState(void 0)", typeof colorDraftSetter === "function", String(typeof colorDraftSetter));
+
+/* 19a 取色当帧写草稿（预览鲸鱼立刻换色，不等宿主往返） */
+colorDraftSetter.calls.length = 0;
+colorInputs19.find((node) => node.props["aria-label"] === "完成")?.props.onChange({ target: { value: "#445566" } });
+check("取色当帧写回显草稿", reduce(colorDraftSetter)?.green === "#445566", JSON.stringify(reduce(colorDraftSetter)));
+await new Promise((resolve) => setTimeout(resolve, 300));
+
+/* 19b 连发只落「首笔 + 静默补笔」—— 原生取色器拖动时会连发 input，逐帧写会把宿主热重载打爆 */
+let colorPickWrites = 0;
+const realSet19 = scope.set;
+scope.set = (key, val) => {
+  if (key === "green") colorPickWrites += 1;
+  return realSet19(key, val);
+};
+for (const hex of ["#010203", "#040506", "#070809"]) colorInputs19.find((node) => node.props["aria-label"] === "完成")?.props.onChange({ target: { value: hex } });
+check("取色连发只落首笔（不逐 input 写宿主）", colorPickWrites === 1, `共写 ${colorPickWrites} 笔`);
+await new Promise((resolve) => setTimeout(resolve, 400));
+check("静默后只补最后一笔", colorPickWrites === 2 && settingsValue.green === "#070809", JSON.stringify({ writes: colorPickWrites, green: settingsValue.green }));
+scope.set = realSet19;
+
+/* 19c 复位：当帧先显示默认色，落定后撤草稿交还快照 */
+colorDraftSetter.calls.length = 0;
+resetButtons19[0]?.props.onClick();
+check("复位当帧把预览改成默认色（不等 unset 回显）", reduce(colorDraftSetter)?.green === "#22C55E", JSON.stringify(reduce(colorDraftSetter)));
+check("复位立即落盘（unset 同步执行）", settingsValue.green === void 0, String(settingsValue.green));
+await new Promise((resolve) => setTimeout(resolve, 300));
+check("落定后草稿撤掉、交还快照", reduce(colorDraftSetter)?.green === void 0, JSON.stringify(reduce(colorDraftSetter)));
+
 console.log(failed === 0 ? "\n全部通过" : `\n有 ${failed} 项失败`);
 process.exit(failed === 0 ? 0 : 1);
