@@ -27,7 +27,9 @@
  * 0.2.0-rc.1：核心拒绝、市场放行）。因此本测试只接受显式比较符写法，遇到别的
  * 语法直接判失败，而不是替你做选择。
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { extname, isAbsolute, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
@@ -197,6 +199,41 @@ for (const [runtime, expected, note] of MATRIX) {
 	check(`${runtime}（${note}）DSH 核心${want}`, core === expected, core ? "PASS" : "REFUSED");
 	check(`${runtime}（${note}）市场判定为 ${expected ? "compatible" : "incompatible"}`,
 		market === (expected ? "compatible" : "incompatible"), market);
+}
+
+/* ------------------------- 清单图标（官方插件页的卡片/行图标） -------------------------
+   官方插件页读的是 `pkg.meta.icon`，来源为 package.json 顶层 `icon`：dsh-app-boot 的
+   readPluginMeta → iconOf 会校验「相对路径 + 扩展名白名单 + realpath 后仍在清单目录内 +
+   ≤256 KiB」，再转成 data:URL 交给 <img> 渲染（所以图标文件里不能用 currentColor 跟随主题）。
+   这里钉住同样几条，免得哪天把图标挪出发布范围（files 没覆盖 → npm 装的宿主看不到）或换错格式。 */
+const ICON_MEDIA_TYPES = new Map([
+	[".svg", "image/svg+xml"],
+	[".png", "image/png"],
+	[".jpg", "image/jpeg"],
+	[".jpeg", "image/jpeg"],
+	[".webp", "image/webp"]
+]);
+const MAX_ICON_BYTES = 256 * 1024;
+const packageRoot = fileURLToPath(new URL("..", import.meta.url));
+const icon = manifest.icon;
+check("声明了顶层 icon（官方插件页的卡片/行图标）", typeof icon === "string" && icon !== "", JSON.stringify(icon));
+if (typeof icon === "string" && icon !== "") {
+	check("icon 是相对路径（不得绝对路径 / 盘符 / URL scheme）",
+		!isAbsolute(icon) && !/^[A-Za-z]:[\\/]/u.test(icon) && !/^[A-Za-z][A-Za-z\d+.-]*:/u.test(icon), icon);
+	check("icon 扩展名在官方白名单内（SVG/PNG/JPEG/WebP）",
+		ICON_MEDIA_TYPES.has(extname(icon).toLowerCase()), extname(icon));
+	const iconFile = resolve(packageRoot, icon);
+	check("icon 文件存在", existsSync(iconFile), iconFile);
+	if (existsSync(iconFile)) {
+		const real = realpathSync(iconFile);
+		const local = relative(realpathSync(packageRoot), real);
+		check("realpath 后仍在包目录内", local !== ".." && !local.startsWith(`..${sep}`) && !isAbsolute(local), local);
+		check("icon 是普通文件", statSync(real).isFile(), String(statSync(real).isFile()));
+		const bytes = statSync(real).size;
+		check(`icon 非空且 ≤256 KiB（实际 ${Math.round(bytes / 1024)} KiB）`, bytes > 0 && bytes <= MAX_ICON_BYTES, `${bytes} B`);
+		const shipped = (manifest.files ?? []).some((entry) => entry === icon || icon.startsWith(`${entry.replace(/\/$/u, "")}/`));
+		check("icon 落在 files 发布范围内（npm 安装的宿主也能看到）", shipped, JSON.stringify(manifest.files));
+	}
 }
 
 console.log(failed === 0 ? "\n全部通过" : `\n有 ${failed} 项失败`);
